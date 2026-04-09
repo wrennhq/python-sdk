@@ -1,0 +1,24 @@
+# Makefile
+.PHONY: generate
+
+# Variables
+SPEC_URL = "https://git.omukk.dev/wrenn/sandbox/raw/branch/main/internal/api/openapi.yaml"
+SPEC_PATH = "api/openapi.yaml"
+
+generate:
+	@echo "Fetching latest OpenAPI spec from Git repo..."
+
+	mkdir -p api
+
+	curl -fsSL $(SPEC_URL) -o $(SPEC_PATH)
+
+	uv run datamodel-codegen \
+		--input $(SPEC_PATH) \
+		--output src/wrenn/models/_generated.py \
+		--output-model-type pydantic_v2.BaseModel \
+		--snake-case-field \
+		--field-constraints \
+		--use-schema-description \
+		--target-python-version 3.13 \
+		--use-annotated \
+		--openapi-scopes schemas
