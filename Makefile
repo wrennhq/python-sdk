@@ -1,8 +1,8 @@
 # Makefile
-.PHONY: generate
+.PHONY: generate lint test check test-integration
 
 # Variables
-SPEC_URL = "https://git.omukk.dev/wrenn/sandbox/raw/branch/main/internal/api/openapi.yaml"
+SPEC_URL = "https://git.omukk.dev/wrenn/wrenn/raw/branch/main/internal/api/openapi.yaml"
 SPEC_PATH = "api/openapi.yaml"
 
 generate:
@@ -22,3 +22,15 @@ generate:
 		--target-python-version 3.13 \
 		--use-annotated \
 		--openapi-scopes schemas
+
+lint:
+	uv run ruff check src/
+	uv run ruff format --check src/
+
+test:
+	uv run pytest tests/test_client.py -v
+
+test-integration:
+	uv run pytest tests/ -v -m "integration or not integration"
+
+check: lint test
