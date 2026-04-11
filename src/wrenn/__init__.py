@@ -11,6 +11,8 @@ from wrenn.exceptions import (
     WrennNotFoundError,
     WrennValidationError,
 )
+from wrenn.models import FileEntry
+from wrenn.pty import AsyncPtySession, PtyEvent, PtyEventType, PtySession
 from wrenn.sandbox import (
     CodeResult,
     ExecResult,
@@ -27,9 +29,14 @@ __version__ = "0.1.0"
 
 __all__ = [
     "__version__",
+    "AsyncPtySession",
     "AsyncWrennClient",
     "CodeResult",
     "ExecResult",
+    "FileEntry",
+    "PtyEvent",
+    "PtyEventType",
+    "PtySession",
     "Sandbox",
     "StreamErrorEvent",
     "StreamEvent",

@@ -3,17 +3,55 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from typing import Any
 
 import httpx
 import httpx_ws
 
-from wrenn.exceptions import WrennAuthenticationError
-from wrenn.models import ExecResponse, Status
+from wrenn.exceptions import handle_response
+from wrenn.models import (
+    ExecResponse,
+    FileEntry,
+    ListDirResponse,
+    MakeDirResponse,
+    Status,
+)
 from wrenn.models import Sandbox as SandboxModel
+from wrenn.pty import AsyncPtySession, PtySession
+
+
+class _IterableReader:
+    """Internal adapter to make iterables/generators act like files with a .
+    read() method"""
+
+    def __init__(self, iterable: Any) -> None:
+        self.iterator = iter(iterable)
+        self.buffer = b""
+
+    def read(self, size: int = -1) -> bytes:
+        if size == -1:
+            return self.buffer + b"".join(
+                chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+                for chunk in self.iterator
+            )
+
+        while len(self.buffer) < size:
+            try:
+                chunk = next(self.iterator)
+                self.buffer += (
+                    chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+                )
+            except StopIteration:
+                break
+
+        result = self.buffer[:size]
+        self.buffer = self.buffer[size:]
+        return result
 
 
 class ExecResult:
@@ -187,14 +225,13 @@ class Sandbox(SandboxModel):
             self._http = None  # type: ignore[assignment]
             self._async_http = http
 
-    def _require_api_key(self) -> str:
-        if not self._api_key:
-            raise WrennAuthenticationError(
-                code="unauthorized",
-                message="Proxy requires an API key. JWT-only clients cannot use proxy routes.",
-                status_code=401,
-            )
-        return self._api_key
+    def _proxy_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if self._api_key:
+            headers["X-API-Key"] = self._api_key
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        return headers
 
     def _clear_content_type(self) -> dict[str, str]:
         assert self._http is not None
@@ -216,24 +253,16 @@ class Sandbox(SandboxModel):
 
         Returns:
             A URL string like ``http://8888-cl-abc123.api.wrenn.dev``.
-
-        Raises:
-            WrennAuthenticationError: If the client was constructed with JWT only.
         """
-        self._require_api_key()
         return _build_proxy_url(self._base_url, self.id, port)
 
     @property
     def http_client(self) -> httpx.Client:
         """A pre-configured ``httpx.Client`` targeting the sandbox proxy on port 8888.
 
-        The client has the ``X-API-Key`` header set and ``base_url`` pointing to
+        The client has auth headers set and ``base_url`` pointing to
         the proxy URL for port 8888.  Closed automatically when the sandbox exits.
-
-        Raises:
-            WrennAuthenticationError: If the client was constructed with JWT only.
         """
-        self._require_api_key()
         if self._proxy_client is None:
             url = (
                 _build_proxy_url(self._base_url, self.id, 8888)
@@ -242,7 +271,7 @@ class Sandbox(SandboxModel):
             )
             self._proxy_client = httpx.Client(
                 base_url=url,
-                headers={"X-API-Key": self._api_key},  # type: ignore[dict-item, arg-type]
+                headers=self._proxy_headers(),
             )
         return self._proxy_client
 
@@ -377,7 +406,7 @@ class Sandbox(SandboxModel):
             ``StreamExitEvent``, or ``StreamErrorEvent``.
         """
         assert self._http is not None
-        with httpx_ws.ws_connect(  # type: ignore[attr-defined]
+        with httpx_ws.connect_ws(  # type: ignore[attr-defined]
             f"/v1/sandboxes/{self.id}/exec/stream",
             self._http,
         ) as ws:
@@ -423,33 +452,22 @@ class Sandbox(SandboxModel):
             data: File contents as bytes.
         """
         assert self._http is not None
-        original_ct = self._http.headers.pop("Content-Type", None)
-        try:
-            resp = self._http.post(
-                f"/v1/sandboxes/{self.id}/files/write",
-                files={"file": ("upload", data)},
-                data={"path": path},
-            )
-        finally:
-            if original_ct is not None:
-                self._http.headers["content-type"] = original_ct
+        resp = self._http.post(
+            f"/v1/sandboxes/{self.id}/files/write",
+            files={"file": ("upload", data)},
+            data={"path": path},
+        )
 
         resp.raise_for_status()
 
     async def async_upload(self, path: str, data: bytes) -> None:
         """Async version of ``upload``."""
         assert self._async_http is not None
-        original_ct = self._async_http.headers.pop("Content-Type", None)
-        try:
-            resp = await self._async_http.post(
-                f"/v1/sandboxes/{self.id}/files/write",
-                files={"file": ("upload", data)},
-                data={"path": path},
-            )
-        finally:
-            if original_ct is not None:
-                self._async_http.headers["Content-Type"] = original_ct
-
+        resp = await self._async_http.post(
+            f"/v1/sandboxes/{self.id}/files/write",
+            files={"file": ("upload", data)},
+            data={"path": path},
+        )
         resp.raise_for_status()
 
     def download(self, path: str) -> bytes:
@@ -488,20 +506,31 @@ class Sandbox(SandboxModel):
         """
         assert self._http is not None
 
-        def _gen() -> Iterator[bytes]:
-            yield from stream
+        boundary = os.urandom(16).hex().encode("utf-8")
 
-        original_ct = self._http.headers.pop("Content-Type", None)
-        try:
-            resp = self._http.post(
-                f"/v1/sandboxes/{self.id}/files/stream/write",
-                files={"file": ("upload", _gen())},  # type: ignore[dict-item]
-                data={"path": path},
-            )
-        finally:
-            if original_ct is not None:
-                self._http.headers["Content-Type"] = original_ct
+        def _multipart_stream() -> Iterator[bytes]:
+            yield b"--" + boundary + b"\r\n"
+            yield b'Content-Disposition: form-data; name="path"\r\n\r\n'
+            yield path.encode("utf-8") + b"\r\n"
 
+            yield b"--" + boundary + b"\r\n"
+            yield b'Content-Disposition: form-data; name="file"; filename="upload.bin"\r\n'
+            yield b"Content-Type: application/octet-stream\r\n\r\n"
+
+            for chunk in stream:
+                yield chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+
+            yield b"\r\n--" + boundary + b"--\r\n"
+
+        headers = {
+            "Content-Type": f"multipart/form-data; boundary={boundary.decode('utf-8')}"
+        }
+
+        resp = self._http.post(
+            f"/v1/sandboxes/{self.id}/files/stream/write",
+            content=_multipart_stream(),
+            headers=headers,
+        )
         resp.raise_for_status()
 
     async def async_stream_upload(
@@ -510,21 +539,32 @@ class Sandbox(SandboxModel):
         """Async version of ``stream_upload``."""
         assert self._async_http is not None
 
-        async def _gen() -> AsyncIterator[bytes]:
+        boundary = os.urandom(16).hex().encode("utf-8")
+
+        async def _async_multipart_stream() -> AsyncIterator[bytes]:
+            yield b"--" + boundary + b"\r\n"
+            yield b'Content-Disposition: form-data; name="path"\r\n\r\n'
+            yield path.encode("utf-8") + b"\r\n"
+
+            yield b"--" + boundary + b"\r\n"
+            yield b'Content-Disposition: form-data; name="file"; filename="upload.bin"\r\n'
+            yield b"Content-Type: application/octet-stream\r\n\r\n"
+
             async for chunk in stream:
-                yield chunk
+                yield chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
 
-        original_ct = self._async_http.headers.pop("Content-Type", None)
-        try:
-            resp = await self._async_http.post(
-                f"/v1/sandboxes/{self.id}/files/stream/write",
-                files={"file": ("upload", _gen())},  # type: ignore[dict-item]
-                data={"path": path},
-            )
-        finally:
-            if original_ct is not None:
-                self._async_http.headers["Content-Type"] = original_ct
+            yield b"\r\n--" + boundary + b"--\r\n"
 
+        headers = {
+            "Content-Type": f"multipart/form-data; boundary={boundary.decode('utf-8')}"
+        }
+
+        # Use content= and headers= just like the sync version
+        resp = await self._async_http.post(
+            f"/v1/sandboxes/{self.id}/files/stream/write",
+            content=_async_multipart_stream(),
+            headers=headers,
+        )
         resp.raise_for_status()
 
     def stream_download(self, path: str) -> Iterator[bytes]:
@@ -556,6 +596,229 @@ class Sandbox(SandboxModel):
             resp.raise_for_status()
             async for chunk in resp.aiter_bytes():
                 yield chunk
+
+    def list_dir(self, path: str, depth: int = 1) -> list[FileEntry]:
+        """List directory contents inside the sandbox.
+
+        Args:
+            path: Absolute directory path.
+            depth: Recursion depth. 1 = immediate children only.
+
+        Returns:
+            List of FileEntry objects with full metadata.
+
+        Raises:
+            WrennValidationError: Invalid path.
+            WrennNotFoundError: Sandbox or directory not found.
+            WrennConflictError: Sandbox is not running.
+            WrennAgentError: Agent error.
+            WrennHostUnavailableError: Host agent not reachable.
+        """
+        assert self._http is not None
+        resp = self._http.post(
+            f"/v1/sandboxes/{self.id}/files/list",
+            json={"path": path, "depth": depth},
+        )
+        data = handle_response(resp)
+        parsed = ListDirResponse.model_validate(data)
+        return parsed.entries or []
+
+    async def async_list_dir(self, path: str, depth: int = 1) -> list[FileEntry]:
+        """Async version of ``list_dir``."""
+        assert self._async_http is not None
+        resp = await self._async_http.post(
+            f"/v1/sandboxes/{self.id}/files/list",
+            json={"path": path, "depth": depth},
+        )
+        data = handle_response(resp)
+        parsed = ListDirResponse.model_validate(data)
+        return parsed.entries or []
+
+    def mkdir(self, path: str) -> FileEntry:
+        """Create a directory inside the sandbox (with parents).
+
+        Args:
+            path: Absolute directory path to create.
+
+        Returns:
+            FileEntry for the created directory.
+
+        Raises:
+            WrennValidationError: Path exists and is not a directory.
+            WrennConflictError: Directory already exists (returns existing entry).
+                Sandbox is not running.
+            WrennNotFoundError: Sandbox not found.
+            WrennAgentError: Agent error.
+            WrennHostUnavailableError: Host agent not reachable.
+        """
+        assert self._http is not None
+        resp = self._http.post(
+            f"/v1/sandboxes/{self.id}/files/mkdir",
+            json={"path": path},
+        )
+        if resp.status_code == 409:
+            try:
+                body = resp.json()
+                err = body.get("error", {})
+                if err.get("code") == "conflict":
+                    parent_dir = os.path.dirname(path)
+                    dir_name = os.path.basename(path)
+
+                    listing = self.list_dir(parent_dir, depth=0)
+                    for entry in listing:
+                        if entry.name == dir_name:
+                            return entry
+            except Exception:
+                pass
+        data = handle_response(resp)
+        parsed = MakeDirResponse.model_validate(data)
+        entry = parsed.entry
+        if entry is None:
+            raise RuntimeError("mkdir response missing entry")
+        return entry
+
+    async def async_mkdir(self, path: str) -> FileEntry:
+        """Async version of ``mkdir``."""
+        assert self._async_http is not None
+        resp = await self._async_http.post(
+            f"/v1/sandboxes/{self.id}/files/mkdir",
+            json={"path": path},
+        )
+        if resp.status_code == 409:
+            try:
+                body = resp.json()
+                err = body.get("error", {})
+                if err.get("code") == "conflict":
+                    listing = await self.async_list_dir(path, depth=0)
+                    parent_dir = os.path.dirname(path)
+                    dir_name = os.path.basename(path)
+
+                    listing = self.list_dir(parent_dir, depth=0)
+                    for entry in listing:
+                        if entry.name == dir_name:
+                            return entry
+            except Exception:
+                pass
+        data = handle_response(resp)
+        parsed = MakeDirResponse.model_validate(data)
+        entry = parsed.entry
+        if entry is None:
+            raise RuntimeError("mkdir response missing entry")
+        return entry
+
+    def remove(self, path: str) -> None:
+        """Remove a file or directory inside the sandbox.
+
+        Removes recursively. No confirmation or dry-run. Equivalent to rm -rf.
+
+        Args:
+            path: Absolute path to remove.
+
+        Raises:
+            WrennValidationError: Invalid path.
+            WrennNotFoundError: Sandbox not found.
+            WrennConflictError: Sandbox is not running.
+            WrennAgentError: Agent error.
+            WrennHostUnavailableError: Host agent not reachable.
+        """
+        assert self._http is not None
+        resp = self._http.post(
+            f"/v1/sandboxes/{self.id}/files/remove",
+            json={"path": path},
+        )
+        handle_response(resp)
+
+    async def async_remove(self, path: str) -> None:
+        """Async version of ``remove``."""
+        assert self._async_http is not None
+        resp = await self._async_http.post(
+            f"/v1/sandboxes/{self.id}/files/remove",
+            json={"path": path},
+        )
+        handle_response(resp)
+
+    @contextmanager
+    def pty(
+        self,
+        cmd: str = "/bin/bash",
+        args: list[str] | None = None,
+        cols: int = 80,
+        rows: int = 24,
+        envs: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> PtySession:
+        """Open an interactive PTY session.
+
+        Args:
+            cmd: Command to run. Defaults to /bin/bash.
+            args: Command arguments.
+            cols: Terminal columns. Defaults to 80.
+            rows: Terminal rows. Defaults to 24.
+            envs: Environment variables.
+            cwd: Working directory.
+
+        Returns:
+            A PtySession context manager. Use with a ``with`` statement.
+        """
+        assert self._http is not None
+        with httpx_ws.connect_ws(
+            f"/v1/sandboxes/{self.id}/pty", client=self._http
+        ) as ws:
+            session = PtySession(ws, self.id)
+            session._send_start(
+                cmd=cmd, args=args, cols=cols, rows=rows, envs=envs, cwd=cwd
+            )
+            yield session
+
+    @contextmanager
+    def pty_connect(self, tag: str) -> PtySession:
+        """Reconnect to an existing PTY session.
+
+        Args:
+            tag: Session tag from a previous PtySession.
+
+        Returns:
+            A PtySession context manager.
+        """
+        assert self._http is not None
+        with httpx_ws.connect_ws(
+            f"/v1/sandboxes/{self.id}/pty", client=self._http
+        ) as ws:
+            session = PtySession(ws, self.id)
+            session._send_connect(tag)
+            yield session
+
+    @asynccontextmanager
+    async def async_pty(
+        self,
+        cmd: str = "/bin/bash",
+        args: list[str] | None = None,
+        cols: int = 80,
+        rows: int = 24,
+        envs: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> AsyncPtySession:
+        """Async version of ``pty``."""
+        assert self._async_http is not None
+        with await httpx_ws.aconnect_ws(
+            f"/v1/sandboxes/{self.id}/pty", client=self._http
+        ) as ws:
+            session = AsyncPtySession(ws, self.id)
+            await session._send_start(
+                cmd=cmd, args=args, cols=cols, rows=rows, envs=envs, cwd=cwd
+            )
+            yield session
+
+    @asynccontextmanager
+    async def async_pty_connect(self, tag: str) -> AsyncPtySession:
+        """Async version of ``pty_connect``."""
+        assert self._async_http is not None
+        with await httpx_ws.aconnect_ws(
+            f"/v1/sandboxes/{self.id}/pty", client=self._http
+        ) as ws:
+            session = AsyncPtySession(ws, self.id)
+            await session._send_connect(tag)
+            yield session
 
     def ping(self) -> None:
         """Reset the sandbox inactivity timer."""
@@ -657,7 +920,7 @@ class Sandbox(SandboxModel):
                     request=resp.request,
                     response=resp,
                 )
-            except (httpx.HTTPStatusError, WrennAuthenticationError):
+            except httpx.HTTPStatusError:
                 raise
             except Exception as exc:
                 last_exc = exc
@@ -674,7 +937,6 @@ class Sandbox(SandboxModel):
         if current_kernel is not None:
             return current_kernel
 
-        self._require_api_key()
         if self._async_proxy_client is None:
             url = (
                 _build_proxy_url(self._base_url, self.id, 8888)
@@ -683,7 +945,7 @@ class Sandbox(SandboxModel):
             )
             self._async_proxy_client = httpx.AsyncClient(
                 base_url=url,
-                headers={"X-API-Key": self._api_key},  # type: ignore[dict-item, arg-type]
+                headers=self._proxy_headers(),
             )
 
         deadline = time.monotonic() + jupyter_timeout
@@ -760,14 +1022,10 @@ class Sandbox(SandboxModel):
 
         Returns:
             A ``CodeResult`` with ``.text``, ``.data``, ``.stdout``, ``.stderr``, ``.error``.
-
-        Raises:
-            WrennAuthenticationError: If the client was constructed with JWT only.
         """
         assert self._http is not None
         kernel_id = self._ensure_kernel(jupyter_timeout=jupyter_timeout)
         ws_url = self._jupyter_ws_url(kernel_id)
-        api_key = self._require_api_key()
 
         msg = self._jupyter_execute_request(code)
         msg_id = msg["msg_id"]
@@ -775,9 +1033,7 @@ class Sandbox(SandboxModel):
         result = CodeResult()
         deadline = time.monotonic() + timeout
 
-        headers = {"X-API-Key": api_key}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
+        headers = self._proxy_headers()
 
         with httpx_ws.connect_ws(ws_url, headers=headers) as ws:  # type: ignore[attr-defined, var-annotated]
             ws.send_text(json.dumps(msg))
@@ -828,7 +1084,6 @@ class Sandbox(SandboxModel):
         assert self._async_http is not None
         kernel_id = await self._async_ensure_kernel(jupyter_timeout=jupyter_timeout)
         ws_url = self._jupyter_ws_url(kernel_id)
-        api_key = self._require_api_key()
 
         msg = self._jupyter_execute_request(code)
         msg_id = msg["msg_id"]
@@ -836,9 +1091,7 @@ class Sandbox(SandboxModel):
         result = CodeResult()
         deadline = time.monotonic() + timeout
 
-        headers = {"X-API-Key": api_key}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
+        headers = self._proxy_headers()
 
         async with httpx_ws.aconnect_ws(ws_url, headers=headers) as ws:  # type: ignore[attr-defined, var-annotated]
             await ws.send_text(json.dumps(msg))

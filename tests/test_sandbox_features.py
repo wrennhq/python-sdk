@@ -5,7 +5,6 @@ import pytest
 import respx
 
 from wrenn.client import WrennClient
-from wrenn.exceptions import WrennAuthenticationError
 from wrenn.sandbox import CodeResult, Sandbox, _build_proxy_url
 
 
@@ -57,22 +56,6 @@ class TestSandboxGetUrl:
             assert url == "ws://3000-cl-xyz.localhost:8080"
 
 
-class TestProxyAuthGuard:
-    def test_jwt_only_get_url_raises(self):
-        with WrennClient(token="jwt-abc") as c:
-            sb = Sandbox(id="cl-abc")
-            sb._bind(c._http, str(c._http.base_url), api_key=None, token="jwt-abc")
-            with pytest.raises(WrennAuthenticationError):
-                sb.get_url(8888)
-
-    def test_jwt_only_http_client_raises(self):
-        with WrennClient(token="jwt-abc") as c:
-            sb = Sandbox(id="cl-abc")
-            sb._bind(c._http, str(c._http.base_url), api_key=None, token="jwt-abc")
-            with pytest.raises(WrennAuthenticationError):
-                _ = sb.http_client
-
-
 class TestSandboxHttpClient:
     @respx.mock
     def test_http_client_has_api_key_header(self, client):
@@ -95,6 +78,20 @@ class TestSandboxHttpClient:
         resp = sb.http_client.get("/api/kernels")
         assert resp.status_code == 200
         assert route.called
+
+    def test_jwt_only_get_url_works(self):
+        with WrennClient(token="jwt-abc") as c:
+            sb = Sandbox(id="cl-abc")
+            sb._bind(c._http, str(c._http.base_url), api_key=None, token="jwt-abc")
+            url = sb.get_url(8888)
+            assert "8888-cl-abc" in url
+
+    def test_jwt_only_http_client_has_bearer_header(self):
+        with WrennClient(token="jwt-abc") as c:
+            sb = Sandbox(id="cl-abc")
+            sb._bind(c._http, str(c._http.base_url), api_key=None, token="jwt-abc")
+            hc = sb.http_client
+            assert hc.headers["Authorization"] == "Bearer jwt-abc"
 
 
 class TestCreateReturnsBoundSandbox:
@@ -146,15 +143,6 @@ class TestCodeResult:
         r = CodeResult(error="ZeroDivisionError: division by zero\n...")
         assert r.error is not None
         assert "ZeroDivisionError" in r.error
-
-
-class TestRunCodeAuthGuard:
-    def test_jwt_only_run_code_raises(self):
-        with WrennClient(token="jwt-abc") as c:
-            sb = Sandbox(id="cl-abc")
-            sb._bind(c._http, str(c._http.base_url), api_key=None, token="jwt-abc")
-            with pytest.raises(WrennAuthenticationError):
-                sb.run_code("print(1)")
 
 
 class TestJupyterMessageFormat:

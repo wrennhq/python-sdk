@@ -7,6 +7,7 @@ import pytest
 
 from wrenn.client import AsyncWrennClient, WrennClient
 from wrenn.exceptions import WrennNotFoundError, WrennValidationError
+from wrenn.pty import PtyEventType
 
 WRENN_API_KEY = os.environ.get("WRENN_API_KEY")
 WRENN_TOKEN = os.environ.get("WRENN_TOKEN")
@@ -285,5 +286,283 @@ class TestAsyncSandboxLifecycle:
                 await sb.async_wait_ready(timeout=60, interval=1)
                 r = await sb.async_run_code("42 * 2")
                 assert r.text == "84"
+            finally:
+                await sb.async_destroy()
+
+
+@requires_auth
+class TestFilesystemListDir:
+    def test_list_dir_root(self, client: WrennClient):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            sb.mkdir("/tmp/ls_test_root")
+            sb.upload("/tmp/ls_test_root/hello.txt", b"hello")
+            entries = sb.list_dir("/tmp/ls_test_root")
+            assert isinstance(entries, list)
+            names = [e.name for e in entries]
+            assert "hello.txt" in names
+
+    def test_list_dir_after_mkdir(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            sb.mkdir("/tmp/fs_test_dir")
+            entries = sb.list_dir("/tmp")
+            names = [e.name for e in entries]
+            assert "fs_test_dir" in names
+
+    def test_list_dir_file_metadata(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            sb.upload("/tmp/meta_test.txt", b"hello world")
+            entries = sb.list_dir("/tmp")
+            match = [e for e in entries if e.name == "meta_test.txt"]
+            assert len(match) == 1
+            f = match[0]
+            assert f.type == "file"
+            assert f.size == 11
+            assert f.permissions is not None
+            assert f.owner is not None
+            assert f.group is not None
+            assert f.modified_at is not None
+
+    def test_list_dir_depth(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            sb.mkdir("/tmp/depth_a/depth_b")
+            sb.upload("/tmp/depth_a/depth_b/nested.txt", b"deep")
+            entries = sb.list_dir("/tmp/depth_a", depth=2)
+            paths = [e.path for e in entries]
+            assert any("nested.txt" in p for p in paths)
+
+    def test_list_dir_empty_directory(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            sb.mkdir("/tmp/empty_dir_test")
+            entries = sb.list_dir("/tmp/empty_dir_test")
+            assert entries == []
+
+
+@requires_auth
+class TestFilesystemMkdir:
+    def test_mkdir_creates_directory(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            entry = sb.mkdir("/tmp/mkdir_test")
+            assert entry.name == "mkdir_test"
+            assert entry.type == "directory"
+            assert entry.path == "/tmp/mkdir_test"
+
+    def test_mkdir_creates_parents(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            entry = sb.mkdir("/tmp/a/b/c/d")
+            assert entry.type == "directory"
+
+    def test_mkdir_already_exists(self, client: WrennClient):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            sb.mkdir("/tmp/exist_test")
+            entry = sb.mkdir("/tmp/exist_test")
+            assert entry.type == "directory"
+
+
+@requires_auth
+class TestFilesystemRemove:
+    def test_remove_file(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            sb.upload("/tmp/rm_test.txt", b"delete me")
+            entries_before = sb.list_dir("/tmp")
+            assert any(e.name == "rm_test.txt" for e in entries_before)
+            sb.remove("/tmp/rm_test.txt")
+            entries_after = sb.list_dir("/tmp")
+            assert not any(e.name == "rm_test.txt" for e in entries_after)
+
+    def test_remove_directory(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            sb.mkdir("/tmp/rm_dir_test")
+            sb.upload("/tmp/rm_dir_test/file.txt", b"inside")
+            sb.remove("/tmp/rm_dir_test")
+            entries = sb.list_dir("/tmp")
+            assert not any(e.name == "rm_dir_test" for e in entries)
+
+    def test_upload_download_remove_roundtrip(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            content = b"round trip test data " * 100
+            sb.upload("/tmp/rt.txt", content)
+            downloaded = sb.download("/tmp/rt.txt")
+            assert downloaded == content
+            sb.remove("/tmp/rt.txt")
+            with pytest.raises(Exception):
+                sb.download("/tmp/rt.txt")
+
+
+@requires_auth
+class TestStreamUploadDownload:
+    def test_stream_upload_and_download(self, client: WrennClient):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            chunks = [b"chunk0_", b"chunk1_", b"chunk2"]
+
+            def data_gen():
+                yield from chunks
+
+            sb.stream_upload("/tmp/stream_test.bin", data_gen())
+            downloaded = sb.download("/tmp/stream_test.bin")
+            assert downloaded == b"chunk0_chunk1_chunk2"
+
+    def test_stream_download_large(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            content = b"x" * 65536 * 3
+            sb.upload("/tmp/large.bin", content)
+            collected = b""
+            for chunk in sb.stream_download("/tmp/large.bin"):
+                collected += chunk
+            assert collected == content
+
+
+@requires_auth
+class TestPty:
+    def test_pty_basic_output(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            with sb.pty(cmd="/bin/sh", cwd="/tmp") as term:
+                term.write(b"echo pty_hello\n")
+                output = b""
+                for event in term:
+                    if event.type == PtyEventType.output:
+                        output += event.data
+                    elif event.type == PtyEventType.exit:
+                        break
+                    if b"pty_hello" in output:
+                        term.write(b"exit\n")
+                assert b"pty_hello" in output
+
+    def test_pty_tag_and_pid(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            with sb.pty(cmd="/bin/sh") as term:
+                started = False
+                for event in term:
+                    if event.type == PtyEventType.started:
+                        started = True
+                        assert term.tag is not None
+                        assert term.pid is not None
+                        assert term.tag.startswith("pty-")
+                    elif event.type == PtyEventType.output:
+                        term.write(b"exit\n")
+                    elif event.type == PtyEventType.exit:
+                        break
+                assert started
+
+    def test_pty_exit_on_command_exit(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            with sb.pty(cmd="/bin/echo", args=["immediate"]) as term:
+                events = list(term)
+                types = [e.type for e in events]
+                assert PtyEventType.started in types
+                assert PtyEventType.output in types or PtyEventType.exit in types
+
+    def test_pty_resize(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            with sb.pty(cmd="/bin/sh", cols=80, rows=24) as term:
+                for event in term:
+                    if event.type == PtyEventType.started:
+                        term.resize(120, 40)
+                        term.write(b"exit\n")
+                    elif event.type == PtyEventType.exit:
+                        break
+
+    def test_pty_envs(self, client):
+        with client.sandboxes.create(template="minimal", timeout_sec=120) as sb:
+            sb.wait_ready(timeout=60, interval=1)
+            with sb.pty(cmd="/bin/sh", envs={"MY_VAR": "hello_env"}) as term:
+                output = b""
+                for event in term:
+                    if event.type == PtyEventType.started:
+                        term.write(b"echo $MY_VAR\n")
+                    elif event.type == PtyEventType.output:
+                        output += event.data
+                        if b"hello_env" in output:
+                            term.write(b"exit\n")
+                    elif event.type == PtyEventType.exit:
+                        break
+                assert b"hello_env" in output
+
+
+@requires_auth
+class TestAsyncFilesystem:
+    @pytest.mark.asyncio
+    async def test_async_list_dir(self, async_client):
+        async with async_client:
+            sb = await async_client.sandboxes.create(
+                template="minimal", timeout_sec=120
+            )
+            try:
+                await sb.async_wait_ready(timeout=60, interval=1)
+                await sb.async_mkdir("/tmp/async_ls_test")
+                await sb.async_upload("/tmp/async_ls_test/file.txt", b"data")
+                entries = await sb.async_list_dir("/tmp/async_ls_test")
+                assert isinstance(entries, list)
+                assert any(e.name == "file.txt" for e in entries)
+            finally:
+                await sb.async_destroy()
+
+    @pytest.mark.asyncio
+    async def test_async_mkdir(self, async_client):
+        async with async_client:
+            sb = await async_client.sandboxes.create(
+                template="minimal", timeout_sec=120
+            )
+            try:
+                await sb.async_wait_ready(timeout=60, interval=1)
+                entry = await sb.async_mkdir("/tmp/async_mkdir_test")
+                assert entry.type == "directory"
+                assert entry.name == "async_mkdir_test"
+            finally:
+                await sb.async_destroy()
+
+    @pytest.mark.asyncio
+    async def test_async_remove(self, async_client):
+        async with async_client:
+            sb = await async_client.sandboxes.create(
+                template="minimal", timeout_sec=120
+            )
+            try:
+                await sb.async_wait_ready(timeout=60, interval=1)
+                await sb.async_upload("/tmp/async_rm.txt", b"bye")
+                entries = await sb.async_list_dir("/tmp")
+                assert any(e.name == "async_rm.txt" for e in entries)
+                await sb.async_remove("/tmp/async_rm.txt")
+                entries = await sb.async_list_dir("/tmp")
+                assert not any(e.name == "async_rm.txt" for e in entries)
+            finally:
+                await sb.async_destroy()
+
+    @pytest.mark.asyncio
+    async def test_async_full_filesystem_roundtrip(self, async_client):
+        async with async_client:
+            sb = await async_client.sandboxes.create(
+                template="minimal", timeout_sec=120
+            )
+            try:
+                await sb.async_wait_ready(timeout=60, interval=1)
+
+                await sb.async_mkdir("/tmp/async_rt")
+                await sb.async_upload("/tmp/async_rt/file.txt", b"async content")
+                entries = await sb.async_list_dir("/tmp/async_rt")
+                assert any(e.name == "file.txt" for e in entries)
+
+                data = await sb.async_download("/tmp/async_rt/file.txt")
+                assert data == b"async content"
+
+                await sb.async_remove("/tmp/async_rt/file.txt")
+                entries = await sb.async_list_dir("/tmp/async_rt")
+                assert not any(e.name == "file.txt" for e in entries)
             finally:
                 await sb.async_destroy()

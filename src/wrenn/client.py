@@ -5,80 +5,24 @@ from typing import cast
 
 import httpx
 
-from wrenn.exceptions import (
-    WrennAgentError,
-    WrennAuthenticationError,
-    WrennConflictError,
-    WrennError,
-    WrennForbiddenError,
-    WrennHostHasSandboxesError,
-    WrennHostUnavailableError,
-    WrennInternalError,
-    WrennNotFoundError,
-    WrennValidationError,
-)
+from wrenn.exceptions import handle_response
 from wrenn.models import (
     APIKeyResponse,
     AuthResponse,
     CreateHostResponse,
     Host,
-    Sandbox as SandboxModel,
     Template,
+)
+from wrenn.models import (
+    Sandbox as SandboxModel,
 )
 from wrenn.sandbox import Sandbox
 
 DEFAULT_BASE_URL = "https://api.wrenn.dev"
 
-_ERROR_MAP: dict[str, type[WrennError]] = {
-    "invalid_request": WrennValidationError,
-    "unauthorized": WrennAuthenticationError,
-    "forbidden": WrennForbiddenError,
-    "not_found": WrennNotFoundError,
-    "invalid_state": WrennConflictError,
-    "conflict": WrennConflictError,
-    "host_has_sandboxes": WrennHostHasSandboxesError,
-    "host_unavailable": WrennHostUnavailableError,
-    "agent_error": WrennAgentError,
-    "internal_error": WrennInternalError,
-}
-
-
-def _handle_response(resp: httpx.Response) -> dict | list:
-    if resp.status_code >= 400:
-        try:
-            body = resp.json()
-        except Exception:
-            resp.raise_for_status()
-            raise
-
-        err = body.get("error", {})
-        code = err.get("code", "internal_error")
-        message = err.get("message", resp.text)
-
-        exc_cls = _ERROR_MAP.get(code, WrennError)
-
-        if exc_cls is WrennHostHasSandboxesError:
-            raise WrennHostHasSandboxesError(
-                code=code,
-                message=message,
-                status_code=resp.status_code,
-                sandbox_ids=body.get("sandbox_ids", []),
-            )
-
-        raise exc_cls(
-            code=code,
-            message=message,
-            status_code=resp.status_code,
-        )
-
-    if resp.status_code == 204:
-        return {}
-
-    return resp.json()
-
 
 def _build_headers(api_key: str | None, token: str | None) -> dict[str, str]:
-    headers: dict[str, str] = {"Content-Type": "application/json"}
+    headers: dict[str, str] = {}
     if api_key:
         headers["X-API-Key"] = api_key
     if token:
@@ -96,13 +40,13 @@ class AuthResource:
         resp = self._http.post(
             "/v1/auth/signup", json={"email": email, "password": password}
         )
-        return AuthResponse.model_validate(_handle_response(resp))
+        return AuthResponse.model_validate(handle_response(resp))
 
     def login(self, email: str, password: str) -> AuthResponse:
         resp = self._http.post(
             "/v1/auth/login", json={"email": email, "password": password}
         )
-        return AuthResponse.model_validate(_handle_response(resp))
+        return AuthResponse.model_validate(handle_response(resp))
 
 
 class AsyncAuthResource:
@@ -115,13 +59,13 @@ class AsyncAuthResource:
         resp = await self._http.post(
             "/v1/auth/signup", json={"email": email, "password": password}
         )
-        return AuthResponse.model_validate(_handle_response(resp))
+        return AuthResponse.model_validate(handle_response(resp))
 
     async def login(self, email: str, password: str) -> AuthResponse:
         resp = await self._http.post(
             "/v1/auth/login", json={"email": email, "password": password}
         )
-        return AuthResponse.model_validate(_handle_response(resp))
+        return AuthResponse.model_validate(handle_response(resp))
 
 
 class APIKeysResource:
@@ -135,15 +79,15 @@ class APIKeysResource:
         if name is not None:
             payload["name"] = name
         resp = self._http.post("/v1/api-keys", json=payload)
-        return APIKeyResponse.model_validate(_handle_response(resp))
+        return APIKeyResponse.model_validate(handle_response(resp))
 
     def list(self) -> list[APIKeyResponse]:
         resp = self._http.get("/v1/api-keys")
-        return [APIKeyResponse.model_validate(item) for item in _handle_response(resp)]
+        return [APIKeyResponse.model_validate(item) for item in handle_response(resp)]
 
     def delete(self, id: str) -> None:
         resp = self._http.delete(f"/v1/api-keys/{id}")
-        _handle_response(resp)
+        handle_response(resp)
 
 
 class AsyncAPIKeysResource:
@@ -157,15 +101,15 @@ class AsyncAPIKeysResource:
         if name is not None:
             payload["name"] = name
         resp = await self._http.post("/v1/api-keys", json=payload)
-        return APIKeyResponse.model_validate(_handle_response(resp))
+        return APIKeyResponse.model_validate(handle_response(resp))
 
     async def list(self) -> list[APIKeyResponse]:
         resp = await self._http.get("/v1/api-keys")
-        return [APIKeyResponse.model_validate(item) for item in _handle_response(resp)]
+        return [APIKeyResponse.model_validate(item) for item in handle_response(resp)]
 
     async def delete(self, id: str) -> None:
         resp = await self._http.delete(f"/v1/api-keys/{id}")
-        _handle_response(resp)
+        handle_response(resp)
 
 
 class SandboxesResource:
@@ -200,22 +144,22 @@ class SandboxesResource:
         if timeout_sec is not None:
             payload["timeout_sec"] = timeout_sec
         resp = self._http.post("/v1/sandboxes", json=payload)
-        model = SandboxModel.model_validate(_handle_response(resp))
+        model = SandboxModel.model_validate(handle_response(resp))
         sb = Sandbox.model_validate(model.model_dump())
         sb._bind(self._http, self._base_url, self._api_key, self._token)
         return sb
 
     def list(self) -> list[SandboxModel]:
         resp = self._http.get("/v1/sandboxes")
-        return [SandboxModel.model_validate(item) for item in _handle_response(resp)]
+        return [SandboxModel.model_validate(item) for item in handle_response(resp)]
 
     def get(self, id: str) -> SandboxModel:
         resp = self._http.get(f"/v1/sandboxes/{id}")
-        return SandboxModel.model_validate(_handle_response(resp))
+        return SandboxModel.model_validate(handle_response(resp))
 
     def destroy(self, id: str) -> None:
         resp = self._http.delete(f"/v1/sandboxes/{id}")
-        _handle_response(resp)
+        handle_response(resp)
 
 
 class AsyncSandboxesResource:
@@ -250,22 +194,22 @@ class AsyncSandboxesResource:
         if timeout_sec is not None:
             payload["timeout_sec"] = timeout_sec
         resp = await self._http.post("/v1/sandboxes", json=payload)
-        model = SandboxModel.model_validate(_handle_response(resp))
+        model = SandboxModel.model_validate(handle_response(resp))
         sb = Sandbox.model_validate(model.model_dump())
         sb._bind(self._http, self._base_url, self._api_key, self._token)
         return sb
 
     async def list(self) -> list[SandboxModel]:
         resp = await self._http.get("/v1/sandboxes")
-        return [SandboxModel.model_validate(item) for item in _handle_response(resp)]
+        return [SandboxModel.model_validate(item) for item in handle_response(resp)]
 
     async def get(self, id: str) -> SandboxModel:
         resp = await self._http.get(f"/v1/sandboxes/{id}")
-        return SandboxModel.model_validate(_handle_response(resp))
+        return SandboxModel.model_validate(handle_response(resp))
 
     async def destroy(self, id: str) -> None:
         resp = await self._http.delete(f"/v1/sandboxes/{id}")
-        _handle_response(resp)
+        handle_response(resp)
 
 
 class SnapshotsResource:
@@ -287,18 +231,18 @@ class SnapshotsResource:
         if overwrite:
             params["overwrite"] = "true"
         resp = self._http.post("/v1/snapshots", json=payload, params=params)
-        return Template.model_validate(_handle_response(resp))
+        return Template.model_validate(handle_response(resp))
 
     def list(self, type: str | None = None) -> list[Template]:
         params: dict = {}
         if type is not None:
             params["type"] = type
         resp = self._http.get("/v1/snapshots", params=params)
-        return [Template.model_validate(item) for item in _handle_response(resp)]
+        return [Template.model_validate(item) for item in handle_response(resp)]
 
     def delete(self, name: str) -> None:
         resp = self._http.delete(f"/v1/snapshots/{name}")
-        _handle_response(resp)
+        handle_response(resp)
 
 
 class AsyncSnapshotsResource:
@@ -320,18 +264,18 @@ class AsyncSnapshotsResource:
         if overwrite:
             params["overwrite"] = "true"
         resp = await self._http.post("/v1/snapshots", json=payload, params=params)
-        return Template.model_validate(_handle_response(resp))
+        return Template.model_validate(handle_response(resp))
 
     async def list(self, type: str | None = None) -> list[Template]:
         params: dict = {}
         if type is not None:
             params["type"] = type
         resp = await self._http.get("/v1/snapshots", params=params)
-        return [Template.model_validate(item) for item in _handle_response(resp)]
+        return [Template.model_validate(item) for item in handle_response(resp)]
 
     async def delete(self, name: str) -> None:
         resp = await self._http.delete(f"/v1/snapshots/{name}")
-        _handle_response(resp)
+        handle_response(resp)
 
 
 class HostsResource:
@@ -355,35 +299,35 @@ class HostsResource:
         if availability_zone is not None:
             payload["availability_zone"] = availability_zone
         resp = self._http.post("/v1/hosts", json=payload)
-        return CreateHostResponse.model_validate(_handle_response(resp))
+        return CreateHostResponse.model_validate(handle_response(resp))
 
     def list(self) -> list[Host]:
         resp = self._http.get("/v1/hosts")
-        return [Host.model_validate(item) for item in _handle_response(resp)]
+        return [Host.model_validate(item) for item in handle_response(resp)]
 
     def get(self, id: str) -> Host:
         resp = self._http.get(f"/v1/hosts/{id}")
-        return Host.model_validate(_handle_response(resp))
+        return Host.model_validate(handle_response(resp))
 
     def delete(self, id: str) -> None:
         resp = self._http.delete(f"/v1/hosts/{id}")
-        _handle_response(resp)
+        handle_response(resp)
 
     def regenerate_token(self, id: str) -> CreateHostResponse:
         resp = self._http.post(f"/v1/hosts/{id}/token")
-        return CreateHostResponse.model_validate(_handle_response(resp))
+        return CreateHostResponse.model_validate(handle_response(resp))
 
     def list_tags(self, id: str) -> builtins.list[str]:
         resp = self._http.get(f"/v1/hosts/{id}/tags")
-        return cast(builtins.list[str], _handle_response(resp))
+        return cast(builtins.list[str], handle_response(resp))
 
     def add_tag(self, id: str, tag: str) -> None:
         resp = self._http.post(f"/v1/hosts/{id}/tags", json={"tag": tag})
-        _handle_response(resp)
+        handle_response(resp)
 
     def remove_tag(self, id: str, tag: str) -> None:
         resp = self._http.delete(f"/v1/hosts/{id}/tags/{tag}")
-        _handle_response(resp)
+        handle_response(resp)
 
 
 class AsyncHostsResource:
@@ -407,35 +351,35 @@ class AsyncHostsResource:
         if availability_zone is not None:
             payload["availability_zone"] = availability_zone
         resp = await self._http.post("/v1/hosts", json=payload)
-        return CreateHostResponse.model_validate(_handle_response(resp))
+        return CreateHostResponse.model_validate(handle_response(resp))
 
     async def list(self) -> list[Host]:
         resp = await self._http.get("/v1/hosts")
-        return [Host.model_validate(item) for item in _handle_response(resp)]
+        return [Host.model_validate(item) for item in handle_response(resp)]
 
     async def get(self, id: str) -> Host:
         resp = await self._http.get(f"/v1/hosts/{id}")
-        return Host.model_validate(_handle_response(resp))
+        return Host.model_validate(handle_response(resp))
 
     async def delete(self, id: str) -> None:
         resp = await self._http.delete(f"/v1/hosts/{id}")
-        _handle_response(resp)
+        handle_response(resp)
 
     async def regenerate_token(self, id: str) -> CreateHostResponse:
         resp = await self._http.post(f"/v1/hosts/{id}/token")
-        return CreateHostResponse.model_validate(_handle_response(resp))
+        return CreateHostResponse.model_validate(handle_response(resp))
 
     async def list_tags(self, id: str) -> builtins.list[str]:
         resp = await self._http.get(f"/v1/hosts/{id}/tags")
-        return cast(builtins.list[str], _handle_response(resp))
+        return cast(builtins.list[str], handle_response(resp))
 
     async def add_tag(self, id: str, tag: str) -> None:
         resp = await self._http.post(f"/v1/hosts/{id}/tags", json={"tag": tag})
-        _handle_response(resp)
+        handle_response(resp)
 
     async def remove_tag(self, id: str, tag: str) -> None:
         resp = await self._http.delete(f"/v1/hosts/{id}/tags/{tag}")
-        _handle_response(resp)
+        handle_response(resp)
 
 
 class WrennClient:
