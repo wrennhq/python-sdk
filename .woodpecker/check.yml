@@ -8,9 +8,8 @@ when:
       - dev
 
 variables:
-  - &python_image "ghcr.io/astral-sh/uv:python3.13-bookworm-slim"
-  - &uv_cache_dir "/root/.cache/uv"
-  - &cache_key "uv-${CI_REPO_NAME}-${CI_COMMIT_BRANCH}"
+  - &python_image ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+  - &uv_cache_dir /root/.cache/uv
 
 steps:
   lint:
@@ -39,4 +38,5 @@ steps:
 
 volumes:
   - name: uv-cache
-    temp: {}
+    host:
+      path: /var/lib/woodpecker/cache/uv/${CI_REPO_NAME}/${CI_COMMIT_BRANCH}
