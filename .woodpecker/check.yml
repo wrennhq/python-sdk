@@ -39,4 +39,4 @@ steps:
 volumes:
   - name: uv-cache
     host:
-      path: /var/lib/woodpecker/cache/uv/${CI_REPO_NAME}/${CI_COMMIT_BRANCH}
+      path: /var/lib/woodpecker/cache/uv
