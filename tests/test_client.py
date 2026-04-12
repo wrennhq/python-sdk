@@ -9,7 +9,7 @@ from wrenn.exceptions import (
     WrennAuthenticationError,
     WrennConflictError,
     WrennForbiddenError,
-    WrennHostHasSandboxesError,
+    WrennHostHasCapsulesError,
     WrennInternalError,
     WrennNotFoundError,
     WrennValidationError,
@@ -17,9 +17,9 @@ from wrenn.exceptions import (
 from wrenn.models import (
     APIKeyResponse,
     AuthResponse,
+    Capsule,
     CreateHostResponse,
     Host,
-    Sandbox,
     Status,
     Template,
 )
@@ -97,10 +97,10 @@ class TestAPIKeys:
         assert route.called
 
 
-class TestSandboxes:
+class TestCapsules:
     @respx.mock
     def test_create(self, client):
-        respx.post("https://api.wrenn.dev/v1/sandboxes").respond(
+        respx.post("https://api.wrenn.dev/v1/capsules").respond(
             201,
             json={
                 "id": "sb-1",
@@ -110,40 +110,40 @@ class TestSandboxes:
                 "memory_mb": 1024,
             },
         )
-        resp = client.sandboxes.create(template="base-python", vcpus=2, memory_mb=1024)
-        assert isinstance(resp, Sandbox)
+        resp = client.capsules.create(template="base-python", vcpus=2, memory_mb=1024)
+        assert isinstance(resp, Capsule)
         assert resp.id == "sb-1"
         assert resp.status == Status.pending
 
     @respx.mock
     def test_create_defaults(self, client):
-        respx.post("https://api.wrenn.dev/v1/sandboxes").respond(
+        respx.post("https://api.wrenn.dev/v1/capsules").respond(
             201, json={"id": "sb-2", "status": "pending"}
         )
-        resp = client.sandboxes.create()
+        resp = client.capsules.create()
         assert resp.id == "sb-2"
 
     @respx.mock
     def test_list(self, client):
-        respx.get("https://api.wrenn.dev/v1/sandboxes").respond(
+        respx.get("https://api.wrenn.dev/v1/capsules").respond(
             200, json=[{"id": "sb-1", "status": "running"}]
         )
-        boxes = client.sandboxes.list()
+        boxes = client.capsules.list()
         assert len(boxes) == 1
         assert boxes[0].status == Status.running
 
     @respx.mock
     def test_get(self, client):
-        respx.get("https://api.wrenn.dev/v1/sandboxes/sb-1").respond(
+        respx.get("https://api.wrenn.dev/v1/capsules/sb-1").respond(
             200, json={"id": "sb-1", "status": "running"}
         )
-        resp = client.sandboxes.get("sb-1")
+        resp = client.capsules.get("sb-1")
         assert resp.id == "sb-1"
 
     @respx.mock
     def test_destroy(self, client):
-        route = respx.delete("https://api.wrenn.dev/v1/sandboxes/sb-1").respond(204)
-        client.sandboxes.destroy("sb-1")
+        route = respx.delete("https://api.wrenn.dev/v1/capsules/sb-1").respond(204)
+        client.capsules.destroy("sb-1")
         assert route.called
 
 
@@ -154,7 +154,7 @@ class TestSnapshots:
             201,
             json={"name": "snap-1", "type": "snapshot", "vcpus": 1},
         )
-        resp = client.snapshots.create(sandbox_id="sb-1", name="snap-1")
+        resp = client.snapshots.create(capsule_id="sb-1", name="snap-1")
         assert isinstance(resp, Template)
         assert resp.name == "snap-1"
 
@@ -163,7 +163,7 @@ class TestSnapshots:
         route = respx.post("https://api.wrenn.dev/v1/snapshots").respond(
             201, json={"name": "snap-1", "type": "snapshot"}
         )
-        client.snapshots.create(sandbox_id="sb-1", overwrite=True)
+        client.snapshots.create(capsule_id="sb-1", overwrite=True)
         req = route.calls[0].request
         assert "overwrite=true" in str(req.url)
 
@@ -262,23 +262,23 @@ class TestHosts:
 class TestErrorHandling:
     @respx.mock
     def test_validation_error(self, client):
-        respx.post("https://api.wrenn.dev/v1/sandboxes").respond(
+        respx.post("https://api.wrenn.dev/v1/capsules").respond(
             400,
             json={"error": {"code": "invalid_request", "message": "bad input"}},
         )
         with pytest.raises(WrennValidationError) as exc_info:
-            client.sandboxes.create()
+            client.capsules.create()
         assert exc_info.value.code == "invalid_request"
         assert exc_info.value.status_code == 400
 
     @respx.mock
     def test_auth_error(self, client):
-        respx.get("https://api.wrenn.dev/v1/sandboxes").respond(
+        respx.get("https://api.wrenn.dev/v1/capsules").respond(
             401,
             json={"error": {"code": "unauthorized", "message": "bad key"}},
         )
         with pytest.raises(WrennAuthenticationError):
-            client.sandboxes.list()
+            client.capsules.list()
 
     @respx.mock
     def test_forbidden_error(self, client):
@@ -291,66 +291,66 @@ class TestErrorHandling:
 
     @respx.mock
     def test_not_found_error(self, client):
-        respx.get("https://api.wrenn.dev/v1/sandboxes/nope").respond(
+        respx.get("https://api.wrenn.dev/v1/capsules/nope").respond(
             404,
-            json={"error": {"code": "not_found", "message": "sandbox not found"}},
+            json={"error": {"code": "not_found", "message": "capsule not found"}},
         )
         with pytest.raises(WrennNotFoundError):
-            client.sandboxes.get("nope")
+            client.capsules.get("nope")
 
     @respx.mock
     def test_conflict_error(self, client):
-        respx.get("https://api.wrenn.dev/v1/sandboxes/sb-1").respond(
+        respx.get("https://api.wrenn.dev/v1/capsules/sb-1").respond(
             409,
             json={"error": {"code": "invalid_state", "message": "not running"}},
         )
         with pytest.raises(WrennConflictError):
-            client.sandboxes.get("sb-1")
+            client.capsules.get("sb-1")
 
     @respx.mock
-    def test_host_has_sandboxes_error(self, client):
+    def test_host_has_capsules_error(self, client):
         respx.delete("https://api.wrenn.dev/v1/hosts/h-1").respond(
             409,
             json={
                 "error": {
-                    "code": "host_has_sandboxes",
-                    "message": "host has running sandboxes",
+                    "code": "host_has_capsules",
+                    "message": "host has running capsules",
                 },
                 "sandbox_ids": ["sb-1", "sb-2"],
             },
         )
-        with pytest.raises(WrennHostHasSandboxesError) as exc_info:
+        with pytest.raises(WrennHostHasCapsulesError) as exc_info:
             client.hosts.delete("h-1")
-        assert exc_info.value.sandbox_ids == ["sb-1", "sb-2"]
+        assert exc_info.value.capsule_ids == ["sb-1", "sb-2"]
 
     @respx.mock
     def test_agent_error(self, client):
-        respx.post("https://api.wrenn.dev/v1/sandboxes").respond(
+        respx.post("https://api.wrenn.dev/v1/capsules").respond(
             502,
             json={"error": {"code": "agent_error", "message": "host agent failed"}},
         )
         with pytest.raises(WrennAgentError):
-            client.sandboxes.create()
+            client.capsules.create()
 
     @respx.mock
     def test_internal_error(self, client):
-        respx.get("https://api.wrenn.dev/v1/sandboxes/sb-1").respond(
+        respx.get("https://api.wrenn.dev/v1/capsules/sb-1").respond(
             500,
             json={"error": {"code": "internal_error", "message": "oops"}},
         )
         with pytest.raises(WrennInternalError):
-            client.sandboxes.get("sb-1")
+            client.capsules.get("sb-1")
 
     @respx.mock
     def test_unknown_error_code_falls_back(self, client):
-        respx.get("https://api.wrenn.dev/v1/sandboxes/sb-1").respond(
+        respx.get("https://api.wrenn.dev/v1/capsules/sb-1").respond(
             418,
             json={"error": {"code": "teapot", "message": "I'm a teapot"}},
         )
         from wrenn.exceptions import WrennError
 
         with pytest.raises(WrennError) as exc_info:
-            client.sandboxes.get("sb-1")
+            client.capsules.get("sb-1")
         assert exc_info.value.code == "teapot"
 
 
@@ -379,22 +379,22 @@ class TestAuthModes:
 class TestAsyncClient:
     @pytest.mark.asyncio
     @respx.mock
-    async def test_async_sandboxes_create(self, async_client):
+    async def test_async_capsules_create(self, async_client):
         async with async_client:
-            respx.post("https://api.wrenn.dev/v1/sandboxes").respond(
+            respx.post("https://api.wrenn.dev/v1/capsules").respond(
                 201, json={"id": "sb-1", "status": "pending"}
             )
-            resp = await async_client.sandboxes.create(template="base-python")
+            resp = await async_client.capsules.create(template="base-python")
             assert resp.id == "sb-1"
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_async_sandboxes_list(self, async_client):
+    async def test_async_capsules_list(self, async_client):
         async with async_client:
-            respx.get("https://api.wrenn.dev/v1/sandboxes").respond(
+            respx.get("https://api.wrenn.dev/v1/capsules").respond(
                 200, json=[{"id": "sb-1"}]
             )
-            boxes = await async_client.sandboxes.list()
+            boxes = await async_client.capsules.list()
             assert len(boxes) == 1
 
     @pytest.mark.asyncio
@@ -409,9 +409,9 @@ class TestAsyncClient:
     @respx.mock
     async def test_async_error_handling(self, async_client):
         async with async_client:
-            respx.get("https://api.wrenn.dev/v1/sandboxes/nope").respond(
+            respx.get("https://api.wrenn.dev/v1/capsules/nope").respond(
                 404,
                 json={"error": {"code": "not_found", "message": "not found"}},
             )
             with pytest.raises(WrennNotFoundError):
-                await async_client.sandboxes.get("nope")
+                await async_client.capsules.get("nope")

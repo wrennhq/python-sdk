@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import builtins
+import warnings
 from typing import cast
 
 import httpx
 
+from wrenn.capsule import Capsule
 from wrenn.exceptions import handle_response
 from wrenn.models import (
     APIKeyResponse,
@@ -14,9 +16,8 @@ from wrenn.models import (
     Template,
 )
 from wrenn.models import (
-    Sandbox as SandboxModel,
+    Capsule as CapsuleModel,
 )
-from wrenn.sandbox import Sandbox
 
 DEFAULT_BASE_URL = "https://api.wrenn.dev"
 
@@ -112,8 +113,8 @@ class AsyncAPIKeysResource:
         handle_response(resp)
 
 
-class SandboxesResource:
-    """Sync sandbox control-plane operations."""
+class CapsulesResource:
+    """Sync capsule control-plane operations."""
 
     def __init__(
         self,
@@ -133,7 +134,7 @@ class SandboxesResource:
         vcpus: int | None = None,
         memory_mb: int | None = None,
         timeout_sec: int | None = None,
-    ) -> Sandbox:
+    ) -> Capsule:
         payload: dict = {}
         if template is not None:
             payload["template"] = template
@@ -143,27 +144,27 @@ class SandboxesResource:
             payload["memory_mb"] = memory_mb
         if timeout_sec is not None:
             payload["timeout_sec"] = timeout_sec
-        resp = self._http.post("/v1/sandboxes", json=payload)
-        model = SandboxModel.model_validate(handle_response(resp))
-        sb = Sandbox.model_validate(model.model_dump())
-        sb._bind(self._http, self._base_url, self._api_key, self._token)
-        return sb
+        resp = self._http.post("/v1/capsules", json=payload)
+        model = CapsuleModel.model_validate(handle_response(resp))
+        cap = Capsule.model_validate(model.model_dump())
+        cap._bind(self._http, self._base_url, self._api_key, self._token)
+        return cap
 
-    def list(self) -> list[SandboxModel]:
-        resp = self._http.get("/v1/sandboxes")
-        return [SandboxModel.model_validate(item) for item in handle_response(resp)]
+    def list(self) -> list[CapsuleModel]:
+        resp = self._http.get("/v1/capsules")
+        return [CapsuleModel.model_validate(item) for item in handle_response(resp)]
 
-    def get(self, id: str) -> SandboxModel:
-        resp = self._http.get(f"/v1/sandboxes/{id}")
-        return SandboxModel.model_validate(handle_response(resp))
+    def get(self, id: str) -> CapsuleModel:
+        resp = self._http.get(f"/v1/capsules/{id}")
+        return CapsuleModel.model_validate(handle_response(resp))
 
     def destroy(self, id: str) -> None:
-        resp = self._http.delete(f"/v1/sandboxes/{id}")
+        resp = self._http.delete(f"/v1/capsules/{id}")
         handle_response(resp)
 
 
-class AsyncSandboxesResource:
-    """Async sandbox control-plane operations."""
+class AsyncCapsulesResource:
+    """Async capsule control-plane operations."""
 
     def __init__(
         self,
@@ -183,7 +184,7 @@ class AsyncSandboxesResource:
         vcpus: int | None = None,
         memory_mb: int | None = None,
         timeout_sec: int | None = None,
-    ) -> Sandbox:
+    ) -> Capsule:
         payload: dict = {}
         if template is not None:
             payload["template"] = template
@@ -193,22 +194,22 @@ class AsyncSandboxesResource:
             payload["memory_mb"] = memory_mb
         if timeout_sec is not None:
             payload["timeout_sec"] = timeout_sec
-        resp = await self._http.post("/v1/sandboxes", json=payload)
-        model = SandboxModel.model_validate(handle_response(resp))
-        sb = Sandbox.model_validate(model.model_dump())
-        sb._bind(self._http, self._base_url, self._api_key, self._token)
-        return sb
+        resp = await self._http.post("/v1/capsules", json=payload)
+        model = CapsuleModel.model_validate(handle_response(resp))
+        cap = Capsule.model_validate(model.model_dump())
+        cap._bind(self._http, self._base_url, self._api_key, self._token)
+        return cap
 
-    async def list(self) -> list[SandboxModel]:
-        resp = await self._http.get("/v1/sandboxes")
-        return [SandboxModel.model_validate(item) for item in handle_response(resp)]
+    async def list(self) -> list[CapsuleModel]:
+        resp = await self._http.get("/v1/capsules")
+        return [CapsuleModel.model_validate(item) for item in handle_response(resp)]
 
-    async def get(self, id: str) -> SandboxModel:
-        resp = await self._http.get(f"/v1/sandboxes/{id}")
-        return SandboxModel.model_validate(handle_response(resp))
+    async def get(self, id: str) -> CapsuleModel:
+        resp = await self._http.get(f"/v1/capsules/{id}")
+        return CapsuleModel.model_validate(handle_response(resp))
 
     async def destroy(self, id: str) -> None:
-        resp = await self._http.delete(f"/v1/sandboxes/{id}")
+        resp = await self._http.delete(f"/v1/capsules/{id}")
         handle_response(resp)
 
 
@@ -220,11 +221,11 @@ class SnapshotsResource:
 
     def create(
         self,
-        sandbox_id: str,
+        capsule_id: str,
         name: str | None = None,
         overwrite: bool = False,
     ) -> Template:
-        payload: dict = {"sandbox_id": sandbox_id}
+        payload: dict = {"sandbox_id": capsule_id}
         if name is not None:
             payload["name"] = name
         params: dict = {}
@@ -253,11 +254,11 @@ class AsyncSnapshotsResource:
 
     async def create(
         self,
-        sandbox_id: str,
+        capsule_id: str,
         name: str | None = None,
         overwrite: bool = False,
     ) -> Template:
-        payload: dict = {"sandbox_id": sandbox_id}
+        payload: dict = {"sandbox_id": capsule_id}
         if name is not None:
             payload["name"] = name
         params: dict = {}
@@ -410,9 +411,18 @@ class WrennClient:
 
         self.auth = AuthResource(self._http)
         self.api_keys = APIKeysResource(self._http)
-        self.sandboxes = SandboxesResource(self._http, base_url, api_key, token)
+        self.capsules = CapsulesResource(self._http, base_url, api_key, token)
         self.snapshots = SnapshotsResource(self._http)
         self.hosts = HostsResource(self._http)
+
+    @property
+    def sandboxes(self) -> CapsulesResource:
+        warnings.warn(
+            "'client.sandboxes' is deprecated, use 'client.capsules' instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.capsules
 
     def close(self) -> None:
         """Close the underlying HTTP connection pool."""
@@ -458,9 +468,18 @@ class AsyncWrennClient:
 
         self.auth = AsyncAuthResource(self._http)
         self.api_keys = AsyncAPIKeysResource(self._http)
-        self.sandboxes = AsyncSandboxesResource(self._http, base_url, api_key, token)
+        self.capsules = AsyncCapsulesResource(self._http, base_url, api_key, token)
         self.snapshots = AsyncSnapshotsResource(self._http)
         self.hosts = AsyncHostsResource(self._http)
+
+    @property
+    def sandboxes(self) -> AsyncCapsulesResource:
+        warnings.warn(
+            "'client.sandboxes' is deprecated, use 'client.capsules' instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.capsules
 
     async def aclose(self) -> None:
         """Close the underlying async HTTP connection pool."""

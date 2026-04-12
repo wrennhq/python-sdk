@@ -66,9 +66,9 @@ class PtySession:
                     break
     """
 
-    def __init__(self, ws: httpx_ws.WebSocketSession, sandbox_id: str) -> None:
+    def __init__(self, ws: httpx_ws.WebSocketSession, capsule_id: str) -> None:
         self._ws = ws
-        self._sandbox_id = sandbox_id
+        self._capsule_id = capsule_id
         self._tag: str | None = None
         self._pid: int | None = None
         self._done = False
@@ -192,9 +192,9 @@ class AsyncPtySession:
                     break
     """
 
-    def __init__(self, ws: httpx_ws.AsyncWebSocketSession, sandbox_id: str) -> None:
+    def __init__(self, ws: httpx_ws.AsyncWebSocketSession, capsule_id: str) -> None:
         self._ws = ws
-        self._sandbox_id = sandbox_id
+        self._capsule_id = capsule_id
         self._tag: str | None = None
         self._pid: int | None = None
         self._done = False

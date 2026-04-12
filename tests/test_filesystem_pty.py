@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import respx
 
+from wrenn.capsule import Capsule
 from wrenn.client import WrennClient
 from wrenn.models import FileEntry
 from wrenn.pty import (
@@ -15,7 +16,6 @@ from wrenn.pty import (
     PtySession,
     _parse_pty_event,
 )
-from wrenn.sandbox import Sandbox
 
 
 @pytest.fixture
@@ -24,18 +24,18 @@ def client():
         yield c
 
 
-def _make_sandbox(client: WrennClient, sb_id: str = "cl-abc") -> Sandbox:
-    respx.post("https://api.wrenn.dev/v1/sandboxes").respond(
-        201, json={"id": sb_id, "status": "running"}
+def _make_capsule(client: WrennClient, cap_id: str = "cl-abc") -> Capsule:
+    respx.post("https://api.wrenn.dev/v1/capsules").respond(
+        201, json={"id": cap_id, "status": "running"}
     )
-    return client.sandboxes.create()
+    return client.capsules.create()
 
 
 class TestListDir:
     @respx.mock
     def test_list_dir_returns_entries(self, client):
-        sb = _make_sandbox(client)
-        respx.post("https://api.wrenn.dev/v1/sandboxes/cl-abc/files/list").respond(
+        cap = _make_capsule(client)
+        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/list").respond(
             200,
             json={
                 "entries": [
@@ -66,7 +66,7 @@ class TestListDir:
                 ]
             },
         )
-        entries = sb.list_dir("/home/user")
+        entries = cap.list_dir("/home/user")
         assert len(entries) == 2
         assert isinstance(entries[0], FileEntry)
         assert entries[0].name == "main.py"
@@ -76,27 +76,27 @@ class TestListDir:
 
     @respx.mock
     def test_list_dir_with_depth(self, client):
-        sb = _make_sandbox(client)
+        cap = _make_capsule(client)
         route = respx.post(
-            "https://api.wrenn.dev/v1/sandboxes/cl-abc/files/list"
+            "https://api.wrenn.dev/v1/capsules/cl-abc/files/list"
         ).respond(200, json={"entries": []})
-        sb.list_dir("/home/user", depth=3)
+        cap.list_dir("/home/user", depth=3)
         body = json.loads(route.calls[0].request.content)
         assert body["depth"] == 3
 
     @respx.mock
     def test_list_dir_empty(self, client):
-        sb = _make_sandbox(client)
-        respx.post("https://api.wrenn.dev/v1/sandboxes/cl-abc/files/list").respond(
+        cap = _make_capsule(client)
+        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/list").respond(
             200, json={"entries": []}
         )
-        entries = sb.list_dir("/empty")
+        entries = cap.list_dir("/empty")
         assert entries == []
 
     @respx.mock
     def test_list_dir_symlink(self, client):
-        sb = _make_sandbox(client)
-        respx.post("https://api.wrenn.dev/v1/sandboxes/cl-abc/files/list").respond(
+        cap = _make_capsule(client)
+        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/list").respond(
             200,
             json={
                 "entries": [
@@ -115,7 +115,7 @@ class TestListDir:
                 ]
             },
         )
-        entries = sb.list_dir("/home/user")
+        entries = cap.list_dir("/home/user")
         assert len(entries) == 1
         assert entries[0].type == "symlink"
         assert entries[0].symlink_target == "/bin"
@@ -124,8 +124,8 @@ class TestListDir:
 class TestMkdir:
     @respx.mock
     def test_mkdir_returns_entry(self, client):
-        sb = _make_sandbox(client)
-        respx.post("https://api.wrenn.dev/v1/sandboxes/cl-abc/files/mkdir").respond(
+        cap = _make_capsule(client)
+        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/mkdir").respond(
             200,
             json={
                 "entry": {
@@ -142,19 +142,19 @@ class TestMkdir:
                 }
             },
         )
-        entry = sb.mkdir("/home/user/data")
+        entry = cap.mkdir("/home/user/data")
         assert isinstance(entry, FileEntry)
         assert entry.name == "data"
         assert entry.type == "directory"
 
     @respx.mock
     def test_mkdir_existing_returns_gracefully(self, client):
-        sb = _make_sandbox(client)
-        respx.post("https://api.wrenn.dev/v1/sandboxes/cl-abc/files/mkdir").respond(
+        cap = _make_capsule(client)
+        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/mkdir").respond(
             409,
             json={"error": {"code": "conflict", "message": "already exists"}},
         )
-        respx.post("https://api.wrenn.dev/v1/sandboxes/cl-abc/files/list").respond(
+        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/list").respond(
             200,
             json={
                 "entries": [
@@ -173,27 +173,27 @@ class TestMkdir:
                 ]
             },
         )
-        entry = sb.mkdir("/home/user/data")
+        entry = cap.mkdir("/home/user/data")
         assert entry.name == "data"
 
 
 class TestRemove:
     @respx.mock
     def test_remove_succeeds(self, client):
-        sb = _make_sandbox(client)
+        cap = _make_capsule(client)
         route = respx.post(
-            "https://api.wrenn.dev/v1/sandboxes/cl-abc/files/remove"
+            "https://api.wrenn.dev/v1/capsules/cl-abc/files/remove"
         ).respond(204)
-        sb.remove("/home/user/old_data")
+        cap.remove("/home/user/old_data")
         assert route.called
 
     @respx.mock
     def test_remove_sends_path(self, client):
-        sb = _make_sandbox(client)
+        cap = _make_capsule(client)
         route = respx.post(
-            "https://api.wrenn.dev/v1/sandboxes/cl-abc/files/remove"
+            "https://api.wrenn.dev/v1/capsules/cl-abc/files/remove"
         ).respond(204)
-        sb.remove("/tmp/test.txt")
+        cap.remove("/tmp/test.txt")
         body = json.loads(route.calls[0].request.content)
         assert body["path"] == "/tmp/test.txt"
 
@@ -201,23 +201,23 @@ class TestRemove:
 class TestUpload:
     @respx.mock
     def test_upload_sends_multipart(self, client):
-        sb = _make_sandbox(client)
+        cap = _make_capsule(client)
         route = respx.post(
-            "https://api.wrenn.dev/v1/sandboxes/cl-abc/files/write"
+            "https://api.wrenn.dev/v1/capsules/cl-abc/files/write"
         ).respond(204)
-        sb.upload("/app/main.py", b"print('hello')")
+        cap.upload("/app/main.py", b"print('hello')")
         assert route.called
         req = route.calls[0].request
         assert b"multipart/form-data" in req.headers.get("content-type", "").encode()
 
     @respx.mock
     def test_download_returns_bytes(self, client):
-        sb = _make_sandbox(client)
+        cap = _make_capsule(client)
         content = b"file contents here"
-        respx.post("https://api.wrenn.dev/v1/sandboxes/cl-abc/files/read").respond(
+        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/read").respond(
             200, content=content
         )
-        data = sb.download("/app/main.py")
+        data = cap.download("/app/main.py")
         assert data == content
 
 
@@ -500,7 +500,8 @@ class TestExports:
         assert APS is not None
 
     def test_pty_event_importable(self):
-        from wrenn import PtyEvent as PE, PtyEventType as PET
+        from wrenn import PtyEvent as PE
+        from wrenn import PtyEventType as PET
 
         assert PE is not None
         assert PET is not None

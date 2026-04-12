@@ -1,42 +1,46 @@
-kind: pipeline
-name: static-analysis
-
 when:
-  - event: push
-    branch:
-      - main
-      - dev
+  event: push
+  branch:
+    - main
+    - dev
 
 variables:
-  - &python_image ghcr.io/astral-sh/uv:python3.13-bookworm-slim
-  - &uv_cache_dir /root/.cache/uv
+  - &python_image "ghcr.io/astral-sh/uv:python3.13-bookworm-slim"
+  - &uv_cache_dir "/root/.cache/uv"
 
 steps:
-  lint:
+  - name: restore-cache
+    image: woodpeckerci/plugin-cache
+    settings:
+      restore: true
+      cache_key: "uv-{{ checksum \"uv.lock\" }}"
+      mount:
+        - /root/.cache/uv
+
+  - name: lint
     image: *python_image
     environment:
       UV_CACHE_DIR: *uv_cache_dir
-      UV_FROZEN: "1"
+      UV_FROZEN: 1
     commands:
       - uv sync --no-install-project
       - make lint
-    volumes:
-      - name: uv-cache
-        path: *uv_cache_dir
 
-  test:
+  - name: test
     image: *python_image
     environment:
       UV_CACHE_DIR: *uv_cache_dir
-      UV_FROZEN: "1"
+      UV_FROZEN: 1
     commands:
       - uv sync --no-install-project
       - make test
-    volumes:
-      - name: uv-cache
-        path: *uv_cache_dir
 
-volumes:
-  - name: uv-cache
-    host:
-      path: /var/lib/woodpecker/cache/uv
+  - name: rebuild-cache
+    image: woodpeckerci/plugin-cache
+    when:
+      - status: [success]
+    settings:
+      rebuild: true
+      cache_key: "uv-{{ checksum \"uv.lock\" }}"
+      mount:
+        - /root/.cache/uv

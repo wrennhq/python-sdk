@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-
 import pytest
 import respx
 
+from wrenn.capsule import Capsule, CodeResult, _build_proxy_url
 from wrenn.client import WrennClient
-from wrenn.sandbox import CodeResult, Sandbox, _build_proxy_url
 
 
 @pytest.fixture
@@ -32,14 +31,14 @@ class TestBuildProxyUrl:
         assert url == "ws://5000-sb-2.192.168.1.1"
 
 
-class TestSandboxGetUrl:
+class TestCapsuleGetUrl:
     @respx.mock
     def test_get_url_returns_proxy_url(self, client):
-        respx.post("https://api.wrenn.dev/v1/sandboxes").respond(
+        respx.post("https://api.wrenn.dev/v1/capsules").respond(
             201, json={"id": "cl-abc", "status": "pending"}
         )
-        sb = client.sandboxes.create(template="minimal")
-        url = sb.get_url(8888)
+        cap = client.capsules.create(template="minimal")
+        url = cap.get_url(8888)
         assert url == "wss://8888-cl-abc.api.wrenn.dev"
 
     @respx.mock
@@ -48,22 +47,22 @@ class TestSandboxGetUrl:
             api_key="wrn_test1234567890abcdef12345678",
             base_url="http://localhost:8080",
         ) as c:
-            respx.post("http://localhost:8080/v1/sandboxes").respond(
+            respx.post("http://localhost:8080/v1/capsules").respond(
                 201, json={"id": "cl-xyz", "status": "pending"}
             )
-            sb = c.sandboxes.create()
-            url = sb.get_url(3000)
+            cap = c.capsules.create()
+            url = cap.get_url(3000)
             assert url == "ws://3000-cl-xyz.localhost:8080"
 
 
-class TestSandboxHttpClient:
+class TestCapsuleHttpClient:
     @respx.mock
     def test_http_client_has_api_key_header(self, client):
-        respx.post("https://api.wrenn.dev/v1/sandboxes").respond(
+        respx.post("https://api.wrenn.dev/v1/capsules").respond(
             201, json={"id": "cl-abc", "status": "pending"}
         )
-        sb = client.sandboxes.create()
-        hc = sb.http_client
+        cap = client.capsules.create()
+        hc = cap.http_client
         assert hc.headers["X-API-Key"] == "wrn_test1234567890abcdef12345678"
 
     @respx.mock
@@ -71,51 +70,51 @@ class TestSandboxHttpClient:
         route = respx.get("https://8888-cl-abc.api.wrenn.dev/api/kernels").respond(
             200, json=[]
         )
-        respx.post("https://api.wrenn.dev/v1/sandboxes").respond(
+        respx.post("https://api.wrenn.dev/v1/capsules").respond(
             201, json={"id": "cl-abc", "status": "pending"}
         )
-        sb = client.sandboxes.create()
-        resp = sb.http_client.get("/api/kernels")
+        cap = client.capsules.create()
+        resp = cap.http_client.get("/api/kernels")
         assert resp.status_code == 200
         assert route.called
 
     def test_jwt_only_get_url_works(self):
         with WrennClient(token="jwt-abc") as c:
-            sb = Sandbox(id="cl-abc")
-            sb._bind(c._http, str(c._http.base_url), api_key=None, token="jwt-abc")
-            url = sb.get_url(8888)
+            cap = Capsule(id="cl-abc")
+            cap._bind(c._http, str(c._http.base_url), api_key=None, token="jwt-abc")
+            url = cap.get_url(8888)
             assert "8888-cl-abc" in url
 
     def test_jwt_only_http_client_has_bearer_header(self):
         with WrennClient(token="jwt-abc") as c:
-            sb = Sandbox(id="cl-abc")
-            sb._bind(c._http, str(c._http.base_url), api_key=None, token="jwt-abc")
-            hc = sb.http_client
+            cap = Capsule(id="cl-abc")
+            cap._bind(c._http, str(c._http.base_url), api_key=None, token="jwt-abc")
+            hc = cap.http_client
             assert hc.headers["Authorization"] == "Bearer jwt-abc"
 
 
-class TestCreateReturnsBoundSandbox:
+class TestCreateReturnsBoundCapsule:
     @respx.mock
-    def test_create_returns_sandbox_subclass(self, client):
-        respx.post("https://api.wrenn.dev/v1/sandboxes").respond(
+    def test_create_returns_capsule_subclass(self, client):
+        respx.post("https://api.wrenn.dev/v1/capsules").respond(
             201, json={"id": "cl-1", "status": "pending", "template": "minimal"}
         )
-        sb = client.sandboxes.create(template="minimal")
-        assert isinstance(sb, Sandbox)
-        assert sb.id == "cl-1"
-        assert hasattr(sb, "exec")
-        assert hasattr(sb, "run_code")
-        assert hasattr(sb, "get_url")
+        cap = client.capsules.create(template="minimal")
+        assert isinstance(cap, Capsule)
+        assert cap.id == "cl-1"
+        assert hasattr(cap, "exec")
+        assert hasattr(cap, "run_code")
+        assert hasattr(cap, "get_url")
 
     @respx.mock
     def test_create_context_manager(self, client):
-        route = respx.delete("https://api.wrenn.dev/v1/sandboxes/cl-1").respond(204)
-        respx.post("https://api.wrenn.dev/v1/sandboxes").respond(
+        route = respx.delete("https://api.wrenn.dev/v1/capsules/cl-1").respond(204)
+        respx.post("https://api.wrenn.dev/v1/capsules").respond(
             201, json={"id": "cl-1", "status": "pending"}
         )
-        sb = client.sandboxes.create()
-        with sb:
-            assert sb.id == "cl-1"
+        cap = client.capsules.create()
+        with cap:
+            assert cap.id == "cl-1"
         assert route.called
 
 
@@ -147,8 +146,8 @@ class TestCodeResult:
 
 class TestJupyterMessageFormat:
     def test_execute_request_structure(self):
-        sb = Sandbox(id="test")
-        msg = sb._jupyter_execute_request("x = 42")
+        cap = Capsule(id="test")
+        msg = cap._jupyter_execute_request("x = 42")
         assert msg["msg_type"] == "execute_request"
         assert msg["content"]["code"] == "x = 42"
         assert msg["content"]["silent"] is False
@@ -157,7 +156,45 @@ class TestJupyterMessageFormat:
         assert msg["header"]["msg_type"] == "execute_request"
 
     def test_execute_request_unique_ids(self):
-        sb = Sandbox(id="test")
-        m1 = sb._jupyter_execute_request("a")
-        m2 = sb._jupyter_execute_request("b")
+        cap = Capsule(id="test")
+        m1 = cap._jupyter_execute_request("a")
+        m2 = cap._jupyter_execute_request("b")
         assert m1["msg_id"] != m2["msg_id"]
+
+
+class TestDeprecationWarnings:
+    def test_import_sandbox_from_capsule_warns(self):
+        import importlib
+        import warnings
+
+        import wrenn.capsule as capsule_mod
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            klass = capsule_mod.Sandbox
+            assert klass is Capsule
+            assert len(w) == 1
+            assert issubclass(w[0].category, DeprecationWarning)
+            assert "Sandbox" in str(w[0].message)
+
+    def test_import_sandbox_from_wrenn_warns(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            from wrenn import Sandbox
+
+            assert Sandbox is Capsule
+            assert any(issubclass(x.category, DeprecationWarning) for x in w)
+
+    def test_client_sandboxes_property_warns(self):
+        import warnings
+
+        with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                resource = c.sandboxes
+                assert resource is c.capsules
+                assert len(w) == 1
+                assert issubclass(w[0].category, DeprecationWarning)
+                assert "sandboxes" in str(w[0].message)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 import httpx
 
 
@@ -33,14 +35,23 @@ class WrennConflictError(WrennError):
     """409 — State conflict (e.g. invalid_state)."""
 
 
-class WrennHostHasSandboxesError(WrennConflictError):
-    """409 — Host still has running sandboxes."""
+class WrennHostHasCapsulesError(WrennConflictError):
+    """409 — Host still has running capsules."""
 
     def __init__(
-        self, code: str, message: str, status_code: int, sandbox_ids: list[str]
+        self, code: str, message: str, status_code: int, capsule_ids: list[str]
     ) -> None:
-        self.sandbox_ids = sandbox_ids
+        self.capsule_ids = capsule_ids
         super().__init__(code, message, status_code)
+
+    @property
+    def sandbox_ids(self) -> list[str]:
+        warnings.warn(
+            "'sandbox_ids' is deprecated, use 'capsule_ids' instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.capsule_ids
 
 
 class WrennHostUnavailableError(WrennError):
@@ -62,7 +73,8 @@ _ERROR_MAP: dict[str, type[WrennError]] = {
     "not_found": WrennNotFoundError,
     "invalid_state": WrennConflictError,
     "conflict": WrennConflictError,
-    "host_has_sandboxes": WrennHostHasSandboxesError,
+    "host_has_sandboxes": WrennHostHasCapsulesError,
+    "host_has_capsules": WrennHostHasCapsulesError,
     "host_unavailable": WrennHostUnavailableError,
     "agent_error": WrennAgentError,
     "internal_error": WrennInternalError,
@@ -83,12 +95,12 @@ def handle_response(resp: httpx.Response) -> dict | list:
 
         exc_cls = _ERROR_MAP.get(code, WrennError)
 
-        if exc_cls is WrennHostHasSandboxesError:
-            raise WrennHostHasSandboxesError(
+        if exc_cls is WrennHostHasCapsulesError:
+            raise WrennHostHasCapsulesError(
                 code=code,
                 message=message,
                 status_code=resp.status_code,
-                sandbox_ids=body.get("sandbox_ids", []),
+                capsule_ids=body.get("sandbox_ids", []),
             )
 
         raise exc_cls(
@@ -101,3 +113,14 @@ def handle_response(resp: httpx.Response) -> dict | list:
         return {}
 
     return resp.json()
+
+
+def __getattr__(name: str) -> type:
+    if name == "WrennHostHasSandboxesError":
+        warnings.warn(
+            "'WrennHostHasSandboxesError' is deprecated, use 'WrennHostHasCapsulesError' instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return WrennHostHasCapsulesError
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
