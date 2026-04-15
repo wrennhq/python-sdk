@@ -63,6 +63,7 @@ class AsyncCapsule:
         memory_mb: int | None = None,
         timeout: int | None = None,
         *,
+        wait: bool = False,
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> AsyncCapsule:
@@ -74,11 +75,14 @@ class AsyncCapsule:
             memory_mb=memory_mb,
             timeout_sec=timeout,
         )
-        return cls(
+        capsule = cls(
             _capsule_id=info.id,
             _client=client,
             _info=info,
         )
+        if wait:
+            await capsule.wait_ready()
+        return capsule
 
     @classmethod
     async def connect(
@@ -103,16 +107,16 @@ class AsyncCapsule:
 
     # ── Dual instance/static lifecycle ──────────────────────────
 
-    kill = _DualMethod("_instance_kill", "_static_kill")
+    destroy = _DualMethod("_instance_destroy", "_static_destroy")
     pause = _DualMethod("_instance_pause", "_static_pause")
     resume = _DualMethod("_instance_resume", "_static_resume")
     get_info = _DualMethod("_instance_get_info", "_static_get_info")
 
-    async def _instance_kill(self) -> None:
+    async def _instance_destroy(self) -> None:
         await self._client.capsules.destroy(self._id)
 
     @classmethod
-    async def _static_kill(
+    async def _static_destroy(
         cls,
         capsule_id: str,
         *,
@@ -260,7 +264,7 @@ class AsyncCapsule:
         exc_tb: object,
     ) -> None:
         try:
-            await self._instance_kill()
+            await self._instance_destroy()
         except Exception:
             pass
         try:

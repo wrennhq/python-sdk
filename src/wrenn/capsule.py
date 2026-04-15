@@ -66,6 +66,7 @@ class Capsule:
         memory_mb: int | None = None,
         timeout: int | None = None,
         *,
+        wait: bool = False,
         api_key: str | None = None,
         base_url: str | None = None,
         # Private: used by classmethods to skip creation
@@ -93,6 +94,9 @@ class Capsule:
         self.commands = Commands(self._id, self._client.http)
         self.files = Files(self._id, self._client.http)
 
+        if wait:
+            self.wait_ready()
+
     # ── Properties ──────────────────────────────────────────────
 
     @property
@@ -113,6 +117,7 @@ class Capsule:
         memory_mb: int | None = None,
         timeout: int | None = None,
         *,
+        wait: bool = False,
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> Capsule:
@@ -122,6 +127,7 @@ class Capsule:
             vcpus=vcpus,
             memory_mb=memory_mb,
             timeout=timeout,
+            wait=wait,
             api_key=api_key,
             base_url=base_url,
         )
@@ -149,17 +155,17 @@ class Capsule:
 
     # ── Dual instance/static lifecycle ──────────────────────────
 
-    kill = _DualMethod("_instance_kill", "_static_kill")
+    destroy = _DualMethod("_instance_destroy", "_static_destroy")
     pause = _DualMethod("_instance_pause", "_static_pause")
     resume = _DualMethod("_instance_resume", "_static_resume")
     get_info = _DualMethod("_instance_get_info", "_static_get_info")
 
-    def _instance_kill(self) -> None:
+    def _instance_destroy(self) -> None:
         """Destroy this capsule."""
         self._client.capsules.destroy(self._id)
 
     @classmethod
-    def _static_kill(
+    def _static_destroy(
         cls,
         capsule_id: str,
         *,
@@ -321,7 +327,7 @@ class Capsule:
         exc_tb: object,
     ) -> None:
         try:
-            self._instance_kill()
+            self._instance_destroy()
         except Exception:
             pass
         try:

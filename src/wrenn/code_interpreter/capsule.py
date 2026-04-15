@@ -80,6 +80,7 @@ class Capsule(BaseCapsule):
         memory_mb: int | None = None,
         timeout: int | None = None,
         *,
+        wait: bool = False,
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> Capsule:
@@ -88,6 +89,7 @@ class Capsule(BaseCapsule):
             vcpus=vcpus,
             memory_mb=memory_mb,
             timeout=timeout,
+            wait=wait,
             api_key=api_key,
             base_url=base_url,
         )
@@ -115,11 +117,20 @@ class Capsule(BaseCapsule):
 
         while time.monotonic() < deadline:
             try:
-                resp = client.post("/api/kernels")
+                # Try to reuse an existing kernel
+                resp = client.get("/api/kernels")
                 if resp.status_code < 500:
                     resp.raise_for_status()
-                    self._kernel_id = resp.json()["id"]
-                    return self._kernel_id
+                    kernels = resp.json()
+                    if kernels:
+                        self._kernel_id = kernels[0]["id"]
+                        return self._kernel_id
+                    # No existing kernels, create a new one
+                    resp = client.post("/api/kernels")
+                    if resp.status_code < 500:
+                        resp.raise_for_status()
+                        self._kernel_id = resp.json()["id"]
+                        return self._kernel_id
                 last_exc = httpx.HTTPStatusError(
                     f"Jupyter returned {resp.status_code}",
                     request=resp.request,
@@ -225,13 +236,22 @@ class Capsule(BaseCapsule):
                         result.stdout += content.get("text", "")
                 elif msg_type == "execute_result":
                     bundle = content.get("data", {})
-                    result.text = bundle.get("text/plain")
+                    text = bundle.get("text/plain")
+                    if text and (
+                        (text.startswith("'") and text.endswith("'"))
+                        or (text.startswith('"') and text.endswith('"'))
+                    ):
+                        text = text[1:-1]
+                    result.text = text
                     result.data = bundle
                 elif msg_type == "error":
                     traceback = content.get("traceback", [])
                     result.error = "\n".join(traceback)
                 elif msg_type == "status" and content.get("execution_state") == "idle":
                     break
+
+        if result.text is None and result.stdout:
+            result.text = result.stdout.strip()
 
         return result
 

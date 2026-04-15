@@ -68,9 +68,9 @@ class TestCapsuleCreate:
 
 class TestCapsuleStaticMethods:
     @respx.mock
-    def test_static_kill(self):
+    def test_static_destroy(self):
         route = respx.delete(f"{BASE}/v1/capsules/cl-1").respond(204)
-        Capsule._static_kill("cl-1", api_key="wrn_test1234567890abcdef12345678")
+        Capsule._static_destroy("cl-1", api_key="wrn_test1234567890abcdef12345678")
         assert route.called
 
     @respx.mock
