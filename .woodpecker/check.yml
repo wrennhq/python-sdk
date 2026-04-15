@@ -1,0 +1,46 @@
+when:
+  event: push
+  branch:
+    - main
+    - dev
+
+variables:
+  - &python_image "ghcr.io/astral-sh/uv:python3.13-bookworm-slim"
+  - &uv_cache_dir "/root/.cache/uv"
+
+steps:
+  - name: restore-cache
+    image: woodpeckerci/plugin-cache
+    settings:
+      restore: true
+      cache_key: "uv-{{ checksum \"uv.lock\" }}"
+      mount:
+        - /root/.cache/uv
+
+  - name: lint
+    image: *python_image
+    environment:
+      UV_CACHE_DIR: *uv_cache_dir
+      UV_FROZEN: 1
+    commands:
+      - uv sync --no-install-project
+      - make lint
+
+  - name: test
+    image: *python_image
+    environment:
+      UV_CACHE_DIR: *uv_cache_dir
+      UV_FROZEN: 1
+    commands:
+      - uv sync --no-install-project
+      - make test
+
+  - name: rebuild-cache
+    image: woodpeckerci/plugin-cache
+    when:
+      - status: [success]
+    settings:
+      rebuild: true
+      cache_key: "uv-{{ checksum \"uv.lock\" }}"
+      mount:
+        - /root/.cache/uv

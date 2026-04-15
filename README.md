@@ -1,3 +1,526 @@
-# python-sdk
+# Wrenn Python SDK
 
-Python SDK for wrenn
+Python client for the [Wrenn](https://wrenn.dev) microVM platform. Create isolated capsules, execute commands, manage files, run interactive terminals, and execute persistent code -- all from Python.
+
+Designed as a drop-in replacement for [e2b](https://e2b.dev). If you're migrating, just swap your imports.
+
+## Installation
+
+```bash
+pip install wrenn
+```
+
+Requires Python 3.13+.
+
+## Authentication
+
+Set the `WRENN_API_KEY` environment variable:
+
+```bash
+export WRENN_API_KEY="wrn_your_api_key_here"
+```
+
+Optionally override the API base URL:
+
+```bash
+export WRENN_BASE_URL="https://app.wrenn.dev/api"  # default
+```
+
+You can also pass credentials directly:
+
+```python
+from wrenn import Capsule
+
+capsule = Capsule(api_key="wrn_...", base_url="https://...")
+```
+
+---
+
+## Wrenn Capsules
+
+### Quick Start
+
+```python
+from wrenn import Capsule
+
+# Create a capsule (reads WRENN_API_KEY from env)
+with Capsule(template="minimal") as capsule:
+    result = capsule.commands.run("echo hello")
+    print(result.stdout)  # "hello\n"
+```
+
+### Creating Capsules
+
+```python
+from wrenn import Capsule
+
+# Direct construction (creates immediately)
+capsule = Capsule()
+capsule = Capsule(template="base-python", vcpus=2, memory_mb=1024, timeout=300)
+
+# With auto-wait (blocks until capsule is running)
+capsule = Capsule(template="minimal", wait=True)
+
+# Via factory classmethod
+capsule = Capsule.create(template="minimal", wait=True)
+```
+
+### Context Manager
+
+Use capsules as context managers for automatic cleanup (destroys capsule on exit):
+
+```python
+with Capsule(template="minimal", wait=True) as capsule:
+    capsule.commands.run("echo hello")
+# capsule is automatically destroyed
+```
+
+### Connecting to Existing Capsules
+
+Attach to a running capsule by ID. If it's paused, it will be resumed automatically:
+
+```python
+capsule = Capsule.connect("cl-abc123")
+result = capsule.commands.run("echo still running")
+```
+
+For code interpreter capsules:
+
+```python
+from wrenn.code_interpreter import Capsule as CodeCapsule
+
+capsule = CodeCapsule.connect("cl-abc123")
+result = capsule.run_code("print('reconnected')")
+```
+
+### Lifecycle Management
+
+```python
+# Instance methods
+capsule.pause()
+capsule.resume()
+capsule.destroy()
+capsule.ping()           # reset inactivity timer
+capsule.wait_ready()     # block until running
+
+info = capsule.get_info()
+print(info.status)       # "running"
+print(capsule.is_running())  # True
+
+# Static methods (no instance needed)
+Capsule.destroy("cl-abc123", api_key="wrn_...")
+Capsule.pause("cl-abc123")
+Capsule.resume("cl-abc123")
+info = Capsule.get_info("cl-abc123")
+
+# List all capsules
+capsules = Capsule.list()
+```
+
+### Command Execution
+
+Commands are accessed via `capsule.commands`:
+
+```python
+# Foreground (blocks until complete)
+result = capsule.commands.run("python -c 'print(42)'")
+print(result.stdout)       # "42\n"
+print(result.stderr)       # ""
+print(result.exit_code)    # 0
+print(result.duration_ms)  # 35
+
+# With options
+result = capsule.commands.run(
+    "python train.py",
+    timeout=120,
+    envs={"CUDA_VISIBLE_DEVICES": "0"},
+    cwd="/app",
+)
+
+# Background process
+handle = capsule.commands.run("python server.py", background=True)
+print(handle.pid)  # 1234
+print(handle.tag)  # "exec-abc123"
+```
+
+#### Streaming Output
+
+```python
+import sys
+
+# Stream a new command
+for event in capsule.commands.stream("python", args=["-u", "train.py"]):
+    match event.type:
+        case "stdout":
+            print(event.data, end="")
+        case "stderr":
+            print(event.data, end="", file=sys.stderr)
+        case "exit":
+            print(f"\nExited with code {event.exit_code}")
+
+# Connect to a running background process
+for event in capsule.commands.connect(handle.pid):
+    if event.type == "stdout":
+        print(event.data, end="")
+```
+
+#### Process Management
+
+```python
+# List running processes
+for proc in capsule.commands.list():
+    print(proc.pid, proc.cmd, proc.tag)
+
+# Kill a process
+capsule.commands.kill(pid=1234)
+```
+
+### Filesystem
+
+Files are accessed via `capsule.files`:
+
+```python
+# Write and read files
+capsule.files.write("/app/main.py", "print('hello')")
+content = capsule.files.read("/app/main.py")        # str
+raw = capsule.files.read_bytes("/app/main.py")       # bytes
+
+# Check existence
+capsule.files.exists("/app/main.py")  # True
+
+# List directory
+entries = capsule.files.list("/home/user", depth=1)
+for entry in entries:
+    print(entry.name, entry.type, entry.size)
+
+# Create directory
+capsule.files.make_dir("/app/data")
+
+# Remove file or directory
+capsule.files.remove("/app/old_data")
+```
+
+#### Streaming (Large Files)
+
+```python
+# Streaming upload
+def chunks():
+    yield b"chunk1"
+    yield b"chunk2"
+
+capsule.files.upload_stream("/data/large.bin", chunks())
+
+# Streaming download
+for chunk in capsule.files.download_stream("/data/large.bin"):
+    process(chunk)
+```
+
+### Interactive Terminal (PTY)
+
+```python
+import sys
+
+with capsule.pty(cmd="/bin/bash", cols=120, rows=40, cwd="/home/user") as term:
+    term.write(b"ls -la\n")
+    for event in term:
+        if event.type == "output":
+            sys.stdout.buffer.write(event.data)
+        elif event.type == "exit":
+            break
+
+# Reconnect to an existing session
+with capsule.pty_connect(term.tag) as term:
+    term.write(b"echo reconnected\n")
+```
+
+**PtySession methods:**
+
+| Method | Description |
+|--------|-------------|
+| `write(data: bytes)` | Send raw bytes to stdin |
+| `resize(cols, rows)` | Resize the terminal |
+| `kill()` | Send SIGKILL to the process |
+| `tag` | Session tag (after `started` event) |
+| `pid` | Process PID (after `started` event) |
+
+### Proxy URL
+
+Access services running inside a capsule:
+
+```python
+url = capsule.get_url(8080)
+# "wss://8080-cl-abc123.app.wrenn.dev"
+```
+
+### Snapshots
+
+Create reusable templates from running capsules:
+
+```python
+template = capsule.create_snapshot(name="my-template", overwrite=True)
+```
+
+---
+
+## Code Interpreter
+
+The `wrenn.code_interpreter` module provides a specialized capsule for stateful code execution via a persistent Jupyter kernel.
+
+### Quick Start
+
+```python
+from wrenn.code_interpreter import Capsule
+
+with Capsule(wait=True) as capsule:
+    result = capsule.run_code("print('hello')")
+    print(result.text)  # "hello"
+```
+
+### Stateful Execution
+
+Variables, imports, and function definitions persist across `run_code` calls:
+
+```python
+from wrenn.code_interpreter import Capsule
+
+with Capsule(wait=True) as capsule:
+    capsule.run_code("x = 42")
+    result = capsule.run_code("x * 2")
+    print(result.text)  # "84"
+
+    capsule.run_code("import math")
+    result = capsule.run_code("math.pi")
+    print(result.text)  # "3.141592653589793"
+
+    capsule.run_code("def greet(name): return f'hello {name}'")
+    result = capsule.run_code("greet('world')")
+    print(result.text)  # "hello world"
+```
+
+The `text` field returns the expression result when available. For `print()` calls (which produce no expression result), it falls back to the stripped stdout output.
+
+### Error Handling in Code
+
+```python
+result = capsule.run_code("1 / 0")
+print(result.error)  # "ZeroDivisionError: division by zero\n..."
+```
+
+### Rich Output
+
+```python
+result = capsule.run_code("""
+import matplotlib.pyplot as plt
+plt.plot([1, 2, 3])
+plt.savefig('/tmp/plot.png')
+plt.show()
+""")
+print(result.data)  # {"image/png": "base64...", "text/plain": "..."}
+```
+
+### Custom Templates
+
+By default, `code-runner-beta` template is used. You can specify a custom template:
+
+```python
+capsule = Capsule(template="my-custom-jupyter-template", wait=True)
+result = capsule.run_code("print('running on custom template')")
+```
+
+### CodeResult Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `text` | `str \| None` | Expression result, or stripped stdout if no expression result |
+| `data` | `dict \| None` | Rich MIME bundle (e.g. `{"image/png": "..."}`) |
+| `stdout` | `str` | Raw accumulated stdout output |
+| `stderr` | `str` | Raw accumulated stderr output |
+| `error` | `str \| None` | Error traceback string |
+
+String expression results have quotes stripped automatically (e.g. `'hello'` becomes `hello`).
+
+### Code Interpreter + Commands/Files
+
+The code interpreter capsule inherits all standard capsule features:
+
+```python
+from wrenn.code_interpreter import Capsule
+
+with Capsule(wait=True) as capsule:
+    # Use run_code for Jupyter execution
+    capsule.run_code("import pandas as pd; df = pd.DataFrame({'a': [1,2,3]})")
+    capsule.run_code("df.to_csv('/tmp/data.csv', index=False)")
+
+    # Use standard file operations
+    content = capsule.files.read("/tmp/data.csv")
+    print(content)
+
+    # Use standard command execution
+    result = capsule.commands.run("wc -l /tmp/data.csv")
+    print(result.stdout)
+```
+
+---
+
+## Async Support
+
+All operations have async variants via `AsyncCapsule`:
+
+### Async Capsule
+
+```python
+from wrenn import AsyncCapsule
+
+async with await AsyncCapsule.create(template="minimal", wait=True) as capsule:
+    result = await capsule.commands.run("echo hello")
+    print(result.stdout)
+
+    await capsule.files.write("/app/file.txt", "data")
+    entries = await capsule.files.list("/app")
+
+    await capsule.pause()
+    await capsule.resume()
+```
+
+### Async Code Interpreter
+
+```python
+from wrenn.code_interpreter import AsyncCapsule
+
+async with await AsyncCapsule.create(wait=True) as capsule:
+    result = await capsule.run_code("2 + 2")
+    print(result.text)  # "4"
+```
+
+### Async PTY
+
+```python
+async with capsule.pty(cmd="/bin/bash") as term:
+    await term.write(b"ls -la\n")
+    async for event in term:
+        if event.type == "output":
+            sys.stdout.buffer.write(event.data)
+```
+
+---
+
+## Error Handling
+
+The SDK maps server error codes to typed exceptions:
+
+```python
+from wrenn import (
+    WrennError,
+    WrennValidationError,      # 400
+    WrennAuthenticationError,  # 401
+    WrennForbiddenError,       # 403
+    WrennNotFoundError,        # 404
+    WrennConflictError,        # 409
+    WrennHostHasCapsulesError, # 409 (host has running capsules)
+    WrennAgentError,           # 502
+    WrennInternalError,        # 500
+    WrennHostUnavailableError, # 503
+)
+
+try:
+    Capsule.get_info("nonexistent")
+except WrennNotFoundError as e:
+    print(e.code)         # "not_found"
+    print(e.message)      # "capsule not found"
+    print(e.status_code)  # 404
+```
+
+All exceptions inherit from `WrennError` and expose `.code`, `.message`, and `.status_code`.
+
+---
+
+## Migrating from e2b
+
+Replace your imports:
+
+```python
+# Before
+from e2b import Sandbox
+sandbox = Sandbox()
+
+# After
+from wrenn import Capsule
+capsule = Capsule()
+```
+
+For code interpreter:
+
+```python
+# Before
+from e2b_code_interpreter import Sandbox
+sandbox = Sandbox()
+result = sandbox.run_code("print('hello')")
+
+# After
+from wrenn.code_interpreter import Capsule
+capsule = Capsule()
+result = capsule.run_code("print('hello')")
+```
+
+The `Sandbox` name is available as a deprecated alias in both modules:
+
+```python
+from wrenn import Sandbox                    # works, emits FutureWarning
+from wrenn.code_interpreter import Sandbox   # works, emits FutureWarning
+```
+
+---
+
+## Low-Level Client
+
+For direct API access, use `WrennClient` / `AsyncWrennClient`:
+
+```python
+from wrenn import WrennClient
+
+with WrennClient(api_key="wrn_...") as client:
+    capsule = client.capsules.create(template="minimal")
+    client.capsules.pause(capsule.id)
+    client.capsules.resume(capsule.id)
+    client.capsules.ping(capsule.id)
+    client.capsules.destroy(capsule.id)
+
+    # Snapshots
+    template = client.snapshots.create(capsule_id="cl-abc", name="my-snap")
+    templates = client.snapshots.list()
+    client.snapshots.delete("my-snap")
+```
+
+---
+
+## Development
+
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
+
+```bash
+# Install dependencies
+uv sync
+
+# Run linting
+make lint
+
+# Run unit tests
+make test
+
+# Run all tests (including integration)
+make test-integration
+```
+
+### Running Integration Tests
+
+Integration tests require a live Wrenn server:
+
+```bash
+export WRENN_API_KEY="wrn_..."
+export WRENN_BASE_URL="http://localhost:8080"  # optional
+make test-integration
+```
+
+## License
+
+MIT
