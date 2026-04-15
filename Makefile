@@ -21,7 +21,9 @@ generate:
 		--use-schema-description \
 		--target-python-version 3.13 \
 		--use-annotated \
-		--openapi-scopes schemas
+		--openapi-scopes schemas \
+		--formatters ruff-format ruff-check \
+		--input-file-type openapi
 
 lint:
 	uv run ruff check src/
