@@ -1,7 +1,10 @@
-from wrenn.capsule import (
-    Capsule,
-    CodeResult,
-    ExecResult,
+from wrenn.async_capsule import AsyncCapsule
+from wrenn.capsule import Capsule
+from wrenn.client import AsyncWrennClient, WrennClient
+from wrenn.commands import (
+    CommandHandle,
+    CommandResult,
+    ProcessInfo,
     StreamErrorEvent,
     StreamEvent,
     StreamExitEvent,
@@ -9,7 +12,6 @@ from wrenn.capsule import (
     StreamStderrEvent,
     StreamStdoutEvent,
 )
-from wrenn.client import AsyncWrennClient, WrennClient
 from wrenn.exceptions import (
     WrennAgentError,
     WrennAuthenticationError,
@@ -29,12 +31,14 @@ __version__ = "0.1.0"
 
 __all__ = [
     "__version__",
+    "AsyncCapsule",
     "AsyncPtySession",
     "AsyncWrennClient",
     "Capsule",
-    "CodeResult",
-    "ExecResult",
+    "CommandHandle",
+    "CommandResult",
     "FileEntry",
+    "ProcessInfo",
     "PtyEvent",
     "PtyEventType",
     "PtySession",
@@ -61,22 +65,25 @@ __all__ = [
 
 
 def __getattr__(name: str) -> type:
-    if name == "Sandbox":
-        import warnings
+    import sys
+    import warnings
 
+    _module = sys.modules[__name__]
+
+    if name == "Sandbox":
         warnings.warn(
             "'Sandbox' is deprecated, use 'Capsule' instead",
-            DeprecationWarning,
+            FutureWarning,
             stacklevel=2,
         )
+        setattr(_module, name, Capsule)
         return Capsule
     if name == "WrennHostHasSandboxesError":
-        import warnings
-
         warnings.warn(
             "'WrennHostHasSandboxesError' is deprecated, use 'WrennHostHasCapsulesError' instead",
-            DeprecationWarning,
+            FutureWarning,
             stacklevel=2,
         )
+        setattr(_module, name, WrennHostHasCapsulesError)
         return WrennHostHasCapsulesError
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

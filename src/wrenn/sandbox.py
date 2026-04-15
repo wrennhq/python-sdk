@@ -1,25 +1,21 @@
 import warnings as _warnings
 
-from wrenn.capsule import (  # noqa: F401
-    CodeResult,
-    ExecResult,
+from wrenn.capsule import Capsule  # noqa: F401
+from wrenn.commands import (  # noqa: F401
     StreamErrorEvent,
     StreamEvent,
     StreamExitEvent,
     StreamStartEvent,
     StreamStderrEvent,
     StreamStdoutEvent,
-    _build_proxy_url,
-    _parse_stream_event,
 )
-from wrenn.capsule import Capsule
 
 
 def __getattr__(name: str) -> type:
     if name == "Sandbox":
         _warnings.warn(
             "'Sandbox' is deprecated, use 'Capsule' instead",
-            DeprecationWarning,
+            FutureWarning,
             stacklevel=2,
         )
         return Capsule

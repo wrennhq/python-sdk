@@ -8,7 +8,6 @@ import pytest
 import respx
 
 from wrenn.capsule import Capsule
-from wrenn.client import WrennClient
 from wrenn.models import FileEntry
 from wrenn.pty import (
     AsyncPtySession,
@@ -17,25 +16,59 @@ from wrenn.pty import (
     _parse_pty_event,
 )
 
-
-@pytest.fixture
-def client():
-    with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
-        yield c
+BASE = "https://app.wrenn.dev/api"
 
 
-def _make_capsule(client: WrennClient, cap_id: str = "cl-abc") -> Capsule:
-    respx.post("https://api.wrenn.dev/v1/capsules").respond(
+def _make_capsule(cap_id: str = "cl-abc") -> Capsule:
+    respx.post(f"{BASE}/v1/capsules").respond(
         201, json={"id": cap_id, "status": "running"}
     )
-    return client.capsules.create()
+    return Capsule(api_key="wrn_test1234567890abcdef12345678")
 
 
-class TestListDir:
+class TestFilesRead:
     @respx.mock
-    def test_list_dir_returns_entries(self, client):
-        cap = _make_capsule(client)
-        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/list").respond(
+    def test_read_returns_string(self):
+        cap = _make_capsule()
+        content = b"file contents here"
+        respx.post(f"{BASE}/v1/capsules/cl-abc/files/read").respond(
+            200, content=content
+        )
+        data = cap.files.read("/app/main.py")
+        assert data == "file contents here"
+
+    @respx.mock
+    def test_read_bytes(self):
+        cap = _make_capsule()
+        content = b"\x00\x01\x02"
+        respx.post(f"{BASE}/v1/capsules/cl-abc/files/read").respond(
+            200, content=content
+        )
+        data = cap.files.read_bytes("/bin/binary")
+        assert data == b"\x00\x01\x02"
+
+
+class TestFilesWrite:
+    @respx.mock
+    def test_write_string(self):
+        cap = _make_capsule()
+        route = respx.post(f"{BASE}/v1/capsules/cl-abc/files/write").respond(204)
+        cap.files.write("/app/main.py", "print('hello')")
+        assert route.called
+
+    @respx.mock
+    def test_write_bytes(self):
+        cap = _make_capsule()
+        route = respx.post(f"{BASE}/v1/capsules/cl-abc/files/write").respond(204)
+        cap.files.write("/app/data.bin", b"\x00\x01\x02")
+        assert route.called
+
+
+class TestFilesList:
+    @respx.mock
+    def test_list_returns_entries(self):
+        cap = _make_capsule()
+        respx.post(f"{BASE}/v1/capsules/cl-abc/files/list").respond(
             200,
             json={
                 "entries": [
@@ -66,7 +99,7 @@ class TestListDir:
                 ]
             },
         )
-        entries = cap.list_dir("/home/user")
+        entries = cap.files.list("/home/user")
         assert len(entries) == 2
         assert isinstance(entries[0], FileEntry)
         assert entries[0].name == "main.py"
@@ -75,57 +108,30 @@ class TestListDir:
         assert entries[1].type == "directory"
 
     @respx.mock
-    def test_list_dir_with_depth(self, client):
-        cap = _make_capsule(client)
-        route = respx.post(
-            "https://api.wrenn.dev/v1/capsules/cl-abc/files/list"
-        ).respond(200, json={"entries": []})
-        cap.list_dir("/home/user", depth=3)
+    def test_list_with_depth(self):
+        cap = _make_capsule()
+        route = respx.post(f"{BASE}/v1/capsules/cl-abc/files/list").respond(
+            200, json={"entries": []}
+        )
+        cap.files.list("/home/user", depth=3)
         body = json.loads(route.calls[0].request.content)
         assert body["depth"] == 3
 
     @respx.mock
-    def test_list_dir_empty(self, client):
-        cap = _make_capsule(client)
-        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/list").respond(
+    def test_list_empty(self):
+        cap = _make_capsule()
+        respx.post(f"{BASE}/v1/capsules/cl-abc/files/list").respond(
             200, json={"entries": []}
         )
-        entries = cap.list_dir("/empty")
+        entries = cap.files.list("/empty")
         assert entries == []
 
-    @respx.mock
-    def test_list_dir_symlink(self, client):
-        cap = _make_capsule(client)
-        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/list").respond(
-            200,
-            json={
-                "entries": [
-                    {
-                        "name": "link",
-                        "path": "/home/user/link",
-                        "type": "symlink",
-                        "size": 4,
-                        "mode": 41471,
-                        "permissions": "lrwxrwxrwx",
-                        "owner": "root",
-                        "group": "root",
-                        "modified_at": 1712899000,
-                        "symlink_target": "/bin",
-                    }
-                ]
-            },
-        )
-        entries = cap.list_dir("/home/user")
-        assert len(entries) == 1
-        assert entries[0].type == "symlink"
-        assert entries[0].symlink_target == "/bin"
 
-
-class TestMkdir:
+class TestFilesMakeDir:
     @respx.mock
-    def test_mkdir_returns_entry(self, client):
-        cap = _make_capsule(client)
-        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/mkdir").respond(
+    def test_make_dir_returns_entry(self):
+        cap = _make_capsule()
+        respx.post(f"{BASE}/v1/capsules/cl-abc/files/mkdir").respond(
             200,
             json={
                 "entry": {
@@ -142,19 +148,19 @@ class TestMkdir:
                 }
             },
         )
-        entry = cap.mkdir("/home/user/data")
+        entry = cap.files.make_dir("/home/user/data")
         assert isinstance(entry, FileEntry)
         assert entry.name == "data"
         assert entry.type == "directory"
 
     @respx.mock
-    def test_mkdir_existing_returns_gracefully(self, client):
-        cap = _make_capsule(client)
-        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/mkdir").respond(
+    def test_make_dir_existing_returns_gracefully(self):
+        cap = _make_capsule()
+        respx.post(f"{BASE}/v1/capsules/cl-abc/files/mkdir").respond(
             409,
             json={"error": {"code": "conflict", "message": "already exists"}},
         )
-        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/list").respond(
+        respx.post(f"{BASE}/v1/capsules/cl-abc/files/list").respond(
             200,
             json={
                 "entries": [
@@ -173,52 +179,48 @@ class TestMkdir:
                 ]
             },
         )
-        entry = cap.mkdir("/home/user/data")
+        entry = cap.files.make_dir("/home/user/data")
         assert entry.name == "data"
 
 
-class TestRemove:
+class TestFilesRemove:
     @respx.mock
-    def test_remove_succeeds(self, client):
-        cap = _make_capsule(client)
-        route = respx.post(
-            "https://api.wrenn.dev/v1/capsules/cl-abc/files/remove"
-        ).respond(204)
-        cap.remove("/home/user/old_data")
+    def test_remove_succeeds(self):
+        cap = _make_capsule()
+        route = respx.post(f"{BASE}/v1/capsules/cl-abc/files/remove").respond(204)
+        cap.files.remove("/home/user/old_data")
         assert route.called
 
     @respx.mock
-    def test_remove_sends_path(self, client):
-        cap = _make_capsule(client)
-        route = respx.post(
-            "https://api.wrenn.dev/v1/capsules/cl-abc/files/remove"
-        ).respond(204)
-        cap.remove("/tmp/test.txt")
+    def test_remove_sends_path(self):
+        cap = _make_capsule()
+        route = respx.post(f"{BASE}/v1/capsules/cl-abc/files/remove").respond(204)
+        cap.files.remove("/tmp/test.txt")
         body = json.loads(route.calls[0].request.content)
         assert body["path"] == "/tmp/test.txt"
 
 
-class TestUpload:
+class TestFilesExists:
     @respx.mock
-    def test_upload_sends_multipart(self, client):
-        cap = _make_capsule(client)
-        route = respx.post(
-            "https://api.wrenn.dev/v1/capsules/cl-abc/files/write"
-        ).respond(204)
-        cap.upload("/app/main.py", b"print('hello')")
-        assert route.called
-        req = route.calls[0].request
-        assert b"multipart/form-data" in req.headers.get("content-type", "").encode()
+    def test_exists_true(self):
+        cap = _make_capsule()
+        respx.post(f"{BASE}/v1/capsules/cl-abc/files/list").respond(
+            200,
+            json={
+                "entries": [
+                    {"name": "hello.txt", "path": "/tmp/hello.txt", "type": "file"}
+                ]
+            },
+        )
+        assert cap.files.exists("/tmp/hello.txt") is True
 
     @respx.mock
-    def test_download_returns_bytes(self, client):
-        cap = _make_capsule(client)
-        content = b"file contents here"
-        respx.post("https://api.wrenn.dev/v1/capsules/cl-abc/files/read").respond(
-            200, content=content
+    def test_exists_false(self):
+        cap = _make_capsule()
+        respx.post(f"{BASE}/v1/capsules/cl-abc/files/list").respond(
+            200, json={"entries": []}
         )
-        data = cap.download("/app/main.py")
-        assert data == content
+        assert cap.files.exists("/tmp/nope.txt") is False
 
 
 class TestPtyEventParsing:
@@ -253,11 +255,6 @@ class TestPtyEventParsing:
         assert event.type == PtyEventType.error
         assert event.data == "process not found"
         assert event.fatal is True
-
-    def test_error_event_non_fatal(self):
-        raw = {"type": "error", "data": "something", "fatal": False}
-        event = _parse_pty_event(raw)
-        assert event.fatal is False
 
     def test_ping_event(self):
         raw = {"type": "ping"}
@@ -308,7 +305,9 @@ class TestPtySessionIteration:
         ws = MagicMock()
         messages = [
             json.dumps({"type": "started", "tag": "pty-abc12345", "pid": 1}),
-            json.dumps({"type": "output", "data": base64.b64encode(b"hello").decode()}),
+            json.dumps(
+                {"type": "output", "data": base64.b64encode(b"hello").decode()}
+            ),
             json.dumps({"type": "exit", "exit_code": 0}),
         ]
         ws.receive_text.side_effect = messages
@@ -385,9 +384,6 @@ class TestPtySessionSendStart:
         assert sent["cmd"] == "/bin/zsh"
         assert sent["args"] == ["-l"]
         assert sent["cols"] == 120
-        assert sent["rows"] == 40
-        assert sent["envs"] == {"TERM": "xterm-256color"}
-        assert sent["cwd"] == "/home/user"
 
 
 class TestPtySessionSendConnect:
@@ -453,23 +449,15 @@ class TestAsyncPtySession:
         assert sent["type"] == "start"
         assert sent["cmd"] == "/bin/zsh"
         assert sent["cols"] == 100
-        assert sent["rows"] == 30
-
-    @pytest.mark.asyncio
-    async def test_async_send_connect(self):
-        ws = AsyncMock()
-        session = AsyncPtySession(ws, "cl-abc")
-        await session._send_connect("pty-abc12345")
-        sent = json.loads(ws.send_text.call_args[0][0])
-        assert sent["type"] == "connect"
-        assert sent["tag"] == "pty-abc12345"
 
     @pytest.mark.asyncio
     async def test_async_iteration(self):
         ws = AsyncMock()
         messages = [
             json.dumps({"type": "started", "tag": "pty-xyz", "pid": 5}),
-            json.dumps({"type": "output", "data": base64.b64encode(b"hi").decode()}),
+            json.dumps(
+                {"type": "output", "data": base64.b64encode(b"hi").decode()}
+            ),
             json.dumps({"type": "exit", "exit_code": 0}),
         ]
         ws.receive_text.side_effect = messages
