@@ -74,6 +74,24 @@ class Capsule:
         _client: WrennClient | None = None,
         _info: CapsuleModel | None = None,
     ) -> None:
+        """Create and start a new capsule.
+
+        Args:
+            template (str | None): Template name to boot from. Defaults to
+                the server-side default (``"minimal"``).
+            vcpus (int | None): Number of virtual CPUs. Defaults to the
+                server-side default.
+            memory_mb (int | None): Memory in MiB. Defaults to the
+                server-side default.
+            timeout (int | None): Inactivity TTL in seconds before the capsule
+                is auto-paused. ``0`` disables auto-pause.
+            wait (bool): If ``True``, block until the capsule status is
+                ``running`` before returning.
+            api_key (str | None): Wrenn API key (``wrn_...``). Falls back to
+                the ``WRENN_API_KEY`` environment variable.
+            base_url (str | None): Wrenn API base URL. Falls back to
+                ``WRENN_BASE_URL`` or the default production endpoint.
+        """
         if _capsule_id is not None:
             # Internal construction path (from create/connect classmethods)
             assert _client is not None
@@ -101,10 +119,21 @@ class Capsule:
 
     @property
     def capsule_id(self) -> str:
+        """The capsule's unique identifier.
+
+        Returns:
+            str: Capsule ID assigned by the Wrenn API.
+        """
         return self._id
 
     @property
     def info(self) -> CapsuleModel | None:
+        """Cached capsule metadata from the last API call.
+
+        Returns:
+            CapsuleModel | None: The last-fetched capsule model, or ``None``
+            if the capsule was connected without an initial fetch.
+        """
         return self._info
 
     # ── Factory classmethods ────────────────────────────────────
@@ -121,7 +150,23 @@ class Capsule:
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> Capsule:
-        """Create a new capsule. Alias for ``Capsule(...)``."""
+        """Create a new capsule.
+
+        Equivalent to calling ``Capsule(...)`` directly.
+
+        Args:
+            template (str | None): Template name to boot from.
+            vcpus (int | None): Number of virtual CPUs.
+            memory_mb (int | None): Memory in MiB.
+            timeout (int | None): Inactivity TTL in seconds before auto-pause.
+            wait (bool): Block until the capsule reaches ``running`` status.
+            api_key (str | None): Wrenn API key. Falls back to
+                ``WRENN_API_KEY`` env var.
+            base_url (str | None): API base URL override.
+
+        Returns:
+            Capsule: A new capsule instance.
+        """
         return cls(
             template=template,
             vcpus=vcpus,
@@ -140,7 +185,20 @@ class Capsule:
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> Capsule:
-        """Connect to an existing capsule. Resumes it if paused."""
+        """Connect to an existing capsule, resuming it if paused.
+
+        Args:
+            capsule_id (str): ID of the capsule to connect to.
+            api_key (str | None): Wrenn API key. Falls back to
+                ``WRENN_API_KEY`` env var.
+            base_url (str | None): API base URL override.
+
+        Returns:
+            Capsule: A capsule instance bound to the existing capsule.
+
+        Raises:
+            WrennNotFoundError: If no capsule with the given ID exists.
+        """
         client = WrennClient(api_key=api_key, base_url=base_url)
         info = client.capsules.get(capsule_id)
 
@@ -230,11 +288,26 @@ class Capsule:
     # ── Instance-only methods ───────────────────────────────────
 
     def ping(self) -> None:
-        """Reset the capsule inactivity timer."""
+        """Reset the capsule inactivity timer.
+
+        Call this to prevent the capsule from being auto-paused when the
+        inactivity TTL is set.
+        """
         self._client.capsules.ping(self._id)
 
     def wait_ready(self, timeout: float = 30, interval: float = 0.5) -> None:
-        """Block until the capsule status is ``running``."""
+        """Block until the capsule status is ``running``.
+
+        Args:
+            timeout (float): Maximum seconds to wait. Defaults to ``30``.
+            interval (float): Polling interval in seconds. Defaults to ``0.5``.
+
+        Raises:
+            TimeoutError: If the capsule does not reach ``running`` state
+                within ``timeout`` seconds.
+            RuntimeError: If the capsule enters an error, stopped, or paused
+                state while waiting.
+        """
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             info = self._client.capsules.get(self._id)
@@ -251,6 +324,13 @@ class Capsule:
         )
 
     def is_running(self) -> bool:
+        """Check whether the capsule is currently running.
+
+        Makes a live API call to fetch current status.
+
+        Returns:
+            bool: ``True`` if the capsule status is ``running``.
+        """
         info = self._instance_get_info()
         return info.status == Status.running
 
@@ -263,7 +343,16 @@ class Capsule:
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> list[CapsuleModel]:
-        """List all capsules for the team."""
+        """List all capsules belonging to the team.
+
+        Args:
+            api_key (str | None): Wrenn API key. Falls back to
+                ``WRENN_API_KEY`` env var.
+            base_url (str | None): API base URL override.
+
+        Returns:
+            list[CapsuleModel]: All capsules for the authenticated team.
+        """
         with WrennClient(api_key=api_key, base_url=base_url) as client:
             return client.capsules.list()
 
@@ -279,7 +368,29 @@ class Capsule:
         envs: dict[str, str] | None = None,
         cwd: str | None = None,
     ) -> Iterator[PtySession]:
-        """Open an interactive PTY session."""
+        """Open an interactive PTY session backed by a WebSocket.
+
+        Use as a context manager and iterate over :class:`PtyEvent` objects::
+
+            with capsule.pty() as term:
+                term.write(b"echo hello\\n")
+                for event in term:
+                    if event.type == "output":
+                        print(event.data.decode())
+
+        Args:
+            cmd (str): Command to run inside the PTY. Defaults to
+                ``"/bin/bash"``.
+            args (list[str] | None): Additional arguments for ``cmd``.
+            cols (int): Initial terminal column count. Defaults to ``80``.
+            rows (int): Initial terminal row count. Defaults to ``24``.
+            envs (dict[str, str] | None): Additional environment variables to
+                inject into the process.
+            cwd (str | None): Working directory for the process.
+
+        Yields:
+            PtySession: An interactive PTY session.
+        """
         with httpx_ws.connect_ws(
             f"/v1/capsules/{self._id}/pty", client=self._client.http
         ) as ws:
@@ -291,7 +402,14 @@ class Capsule:
 
     @contextmanager
     def pty_connect(self, tag: str) -> Iterator[PtySession]:
-        """Reconnect to an existing PTY session by tag."""
+        """Reconnect to an existing PTY session by tag.
+
+        Args:
+            tag (str): Session tag returned in the ``started`` PTY event.
+
+        Yields:
+            PtySession: The reconnected PTY session.
+        """
         with httpx_ws.connect_ws(
             f"/v1/capsules/{self._id}/pty", client=self._client.http
         ) as ws:
@@ -302,7 +420,15 @@ class Capsule:
     # ── Proxy helpers ───────────────────────────────────────────
 
     def get_url(self, port: int) -> str:
-        """Get the proxy URL for a port inside this capsule."""
+        """Get the proxy URL for a port exposed inside this capsule.
+
+        Args:
+            port (int): Port number to proxy.
+
+        Returns:
+            str: A ``wss://`` (or ``ws://``) URL that proxies to the given
+            port inside the capsule.
+        """
         return _build_proxy_url(self._client._base_url, self._id, port)
 
     # ── Snapshots ───────────────────────────────────────────────
@@ -310,7 +436,17 @@ class Capsule:
     def create_snapshot(
         self, name: str | None = None, overwrite: bool = False
     ) -> Template:
-        """Create a snapshot template from this capsule."""
+        """Create a snapshot template from this capsule's current state.
+
+        Args:
+            name (str | None): Name for the snapshot template. Auto-generated
+                if not provided.
+            overwrite (bool): If ``True``, overwrite an existing template with
+                the same name. Defaults to ``False``.
+
+        Returns:
+            Template: The created snapshot template.
+        """
         return self._client.snapshots.create(
             capsule_id=self._id, name=name, overwrite=overwrite
         )

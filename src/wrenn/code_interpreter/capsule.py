@@ -47,6 +47,18 @@ class Capsule(BaseCapsule):
         base_url: str | None = None,
         **kwargs,
     ) -> None:
+        """Create a code interpreter capsule.
+
+        Args:
+            template (str | None): Template to boot from. Defaults to
+                ``"code-runner-beta"``.
+            vcpus (int | None): Number of virtual CPUs.
+            memory_mb (int | None): Memory in MiB.
+            timeout (int | None): Inactivity TTL in seconds before auto-pause.
+            api_key (str | None): Wrenn API key. Falls back to
+                ``WRENN_API_KEY`` env var.
+            base_url (str | None): API base URL override.
+        """
         super().__init__(
             template=template or DEFAULT_TEMPLATE,
             vcpus=vcpus,
@@ -71,6 +83,22 @@ class Capsule(BaseCapsule):
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> Capsule:
+        """Create a new code interpreter capsule.
+
+        Args:
+            template (str | None): Template to boot from. Defaults to
+                ``"code-runner-beta"``.
+            vcpus (int | None): Number of virtual CPUs.
+            memory_mb (int | None): Memory in MiB.
+            timeout (int | None): Inactivity TTL in seconds before auto-pause.
+            wait (bool): Block until the capsule reaches ``running`` status.
+            api_key (str | None): Wrenn API key. Falls back to
+                ``WRENN_API_KEY`` env var.
+            base_url (str | None): API base URL override.
+
+        Returns:
+            Capsule: A new code interpreter capsule instance.
+        """
         return cls(
             template=template or DEFAULT_TEMPLATE,
             vcpus=vcpus,

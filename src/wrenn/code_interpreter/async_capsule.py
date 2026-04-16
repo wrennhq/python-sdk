@@ -53,6 +53,22 @@ class AsyncCapsule(BaseAsyncCapsule):
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> AsyncCapsule:
+        """Create a new async code interpreter capsule.
+
+        Args:
+            template (str | None): Template to boot from. Defaults to
+                ``"code-runner-beta"``.
+            vcpus (int | None): Number of virtual CPUs.
+            memory_mb (int | None): Memory in MiB.
+            timeout (int | None): Inactivity TTL in seconds before auto-pause.
+            wait (bool): Await until the capsule reaches ``running`` status.
+            api_key (str | None): Wrenn API key. Falls back to
+                ``WRENN_API_KEY`` env var.
+            base_url (str | None): API base URL override.
+
+        Returns:
+            AsyncCapsule: A new async code interpreter capsule instance.
+        """
         client = AsyncWrennClient(api_key=api_key, base_url=base_url)
         info = await client.capsules.create(
             template=template or DEFAULT_TEMPLATE,

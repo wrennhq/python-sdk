@@ -6,9 +6,26 @@ import httpx
 
 
 class WrennError(Exception):
-    """Base exception for all Wrenn SDK errors."""
+    """Base exception for all Wrenn SDK errors.
+
+    All SDK exceptions inherit from this class, so you can catch
+    ``WrennError`` to handle any API error generically.
+
+    Attributes:
+        code (str): Machine-readable error code from the API
+            (e.g. ``"not_found"``).
+        message (str): Human-readable error description.
+        status_code (int): HTTP status code of the response.
+    """
 
     def __init__(self, code: str, message: str, status_code: int) -> None:
+        """Initialize a WrennError.
+
+        Args:
+            code (str): Machine-readable error code.
+            message (str): Human-readable error description.
+            status_code (int): HTTP status code of the response.
+        """
         self.code = code
         self.message = message
         self.status_code = status_code
@@ -36,11 +53,23 @@ class WrennConflictError(WrennError):
 
 
 class WrennHostHasCapsulesError(WrennConflictError):
-    """409 — Host still has running capsules."""
+    """409 — Host still has running capsules.
+
+    Attributes:
+        capsule_ids (list[str]): IDs of the capsules still running on the host.
+    """
 
     def __init__(
         self, code: str, message: str, status_code: int, capsule_ids: list[str]
     ) -> None:
+        """Initialize a WrennHostHasCapsulesError.
+
+        Args:
+            code (str): Machine-readable error code.
+            message (str): Human-readable error description.
+            status_code (int): HTTP status code of the response.
+            capsule_ids (list[str]): IDs of capsules still on the host.
+        """
         self.capsule_ids = capsule_ids
         super().__init__(code, message, status_code)
 

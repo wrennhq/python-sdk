@@ -161,6 +161,28 @@ class Commands:
         cwd: str | None = None,
         tag: str | None = None,
     ) -> CommandResult | CommandHandle:
+        """Execute a shell command inside the capsule.
+
+        Args:
+            cmd (str): Shell command string to execute.
+            background (bool): If ``True``, launch the process in the
+                background and return a :class:`CommandHandle` immediately.
+                Defaults to ``False``.
+            timeout (int | None): Seconds before the foreground command times
+                out. Ignored for background commands. Defaults to ``30``.
+            envs (dict[str, str] | None): Additional environment variables
+                to set for the process.
+            cwd (str | None): Working directory for the process.
+            tag (str | None): Optional label attached to background processes
+                for later retrieval via :meth:`connect`.
+
+        Returns:
+            CommandResult: stdout, stderr, exit code, and duration for
+            foreground commands (``background=False``).
+
+            CommandHandle: PID and tag for background commands
+            (``background=True``).
+        """
         payload: dict = {"cmd": cmd, "background": background}
         if timeout is not None and not background:
             payload["timeout_sec"] = timeout
@@ -185,6 +207,12 @@ class Commands:
         return _decode_exec_response(data)
 
     def list(self) -> list[ProcessInfo]:
+        """List all running background processes in the capsule.
+
+        Returns:
+            list[ProcessInfo]: Running processes with their PID, tag, and
+            command information.
+        """
         resp = self._http.get(f"/v1/capsules/{self._capsule_id}/processes")
         data = handle_response(resp)
         return [
@@ -198,13 +226,29 @@ class Commands:
         ]
 
     def kill(self, pid: int) -> None:
+        """Send SIGKILL to a background process.
+
+        Args:
+            pid (int): PID of the process to kill.
+
+        Raises:
+            WrennNotFoundError: If no process with the given PID exists.
+        """
         resp = self._http.delete(
             f"/v1/capsules/{self._capsule_id}/processes/{pid}"
         )
         handle_response(resp)
 
     def connect(self, pid: int) -> Iterator[StreamEvent]:
-        """Connect to a running background process and stream its output."""
+        """Connect to a running background process and stream its output.
+
+        Args:
+            pid (int): PID of the background process to attach to.
+
+        Yields:
+            StreamEvent: Successive output events. Stops on
+            :class:`StreamExitEvent` or :class:`StreamErrorEvent`.
+        """
         with httpx_ws.connect_ws(
             f"/v1/capsules/{self._capsule_id}/processes/{pid}/stream",
             self._http,
@@ -222,7 +266,17 @@ class Commands:
     def stream(
         self, cmd: str, args: list[str] | None = None
     ) -> Iterator[StreamEvent]:
-        """Execute a command via WebSocket, yielding ``StreamEvent`` objects."""
+        """Execute a command via WebSocket, streaming output as events.
+
+        Args:
+            cmd (str): Command to execute.
+            args (list[str] | None): Additional arguments for the command.
+
+        Yields:
+            StreamEvent: Successive events including :class:`StreamStartEvent`,
+            :class:`StreamStdoutEvent`, :class:`StreamStderrEvent`,
+            :class:`StreamExitEvent`, and :class:`StreamErrorEvent`.
+        """
         with httpx_ws.connect_ws(
             f"/v1/capsules/{self._capsule_id}/exec/stream",
             self._http,
@@ -283,6 +337,28 @@ class AsyncCommands:
         cwd: str | None = None,
         tag: str | None = None,
     ) -> CommandResult | CommandHandle:
+        """Execute a shell command inside the capsule.
+
+        Args:
+            cmd (str): Shell command string to execute.
+            background (bool): If ``True``, launch the process in the
+                background and return a :class:`CommandHandle` immediately.
+                Defaults to ``False``.
+            timeout (int | None): Seconds before the foreground command times
+                out. Ignored for background commands. Defaults to ``30``.
+            envs (dict[str, str] | None): Additional environment variables
+                to set for the process.
+            cwd (str | None): Working directory for the process.
+            tag (str | None): Optional label attached to background processes
+                for later retrieval via :meth:`connect`.
+
+        Returns:
+            CommandResult: stdout, stderr, exit code, and duration for
+            foreground commands (``background=False``).
+
+            CommandHandle: PID and tag for background commands
+            (``background=True``).
+        """
         payload: dict = {"cmd": cmd, "background": background}
         if timeout is not None and not background:
             payload["timeout_sec"] = timeout
@@ -307,6 +383,12 @@ class AsyncCommands:
         return _decode_exec_response(data)
 
     async def list(self) -> list[ProcessInfo]:
+        """List all running background processes in the capsule.
+
+        Returns:
+            list[ProcessInfo]: Running processes with their PID, tag, and
+            command information.
+        """
         resp = await self._http.get(
             f"/v1/capsules/{self._capsule_id}/processes"
         )
@@ -322,13 +404,29 @@ class AsyncCommands:
         ]
 
     async def kill(self, pid: int) -> None:
+        """Send SIGKILL to a background process.
+
+        Args:
+            pid (int): PID of the process to kill.
+
+        Raises:
+            WrennNotFoundError: If no process with the given PID exists.
+        """
         resp = await self._http.delete(
             f"/v1/capsules/{self._capsule_id}/processes/{pid}"
         )
         handle_response(resp)
 
     async def connect(self, pid: int) -> AsyncIterator[StreamEvent]:
-        """Connect to a running background process and stream its output."""
+        """Connect to a running background process and stream its output.
+
+        Args:
+            pid (int): PID of the background process to attach to.
+
+        Yields:
+            StreamEvent: Successive output events. Stops on
+            :class:`StreamExitEvent` or :class:`StreamErrorEvent`.
+        """
         async with httpx_ws.aconnect_ws(
             f"/v1/capsules/{self._capsule_id}/processes/{pid}/stream",
             self._http,
@@ -346,7 +444,17 @@ class AsyncCommands:
     async def stream(
         self, cmd: str, args: list[str] | None = None
     ) -> AsyncIterator[StreamEvent]:
-        """Execute a command via WebSocket, yielding ``StreamEvent`` objects."""
+        """Execute a command via WebSocket, streaming output as events.
+
+        Args:
+            cmd (str): Command to execute.
+            args (list[str] | None): Additional arguments for the command.
+
+        Yields:
+            StreamEvent: Successive events including :class:`StreamStartEvent`,
+            :class:`StreamStdoutEvent`, :class:`StreamStderrEvent`,
+            :class:`StreamExitEvent`, and :class:`StreamErrorEvent`.
+        """
         async with httpx_ws.aconnect_ws(
             f"/v1/capsules/{self._capsule_id}/exec/stream",
             self._http,
