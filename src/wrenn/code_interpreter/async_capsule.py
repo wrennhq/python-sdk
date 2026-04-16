@@ -4,6 +4,8 @@ import asyncio
 import json
 import time
 import uuid
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 import httpx_ws
@@ -11,7 +13,13 @@ import httpx_ws
 from wrenn.async_capsule import AsyncCapsule as BaseAsyncCapsule
 from wrenn.capsule import _build_proxy_url
 from wrenn.client import AsyncWrennClient
-from wrenn.code_interpreter.capsule import CodeResult, DEFAULT_TEMPLATE
+from wrenn.code_interpreter.capsule import DEFAULT_TEMPLATE
+from wrenn.code_interpreter.models import (
+    Execution,
+    ExecutionError,
+    Logs,
+    Result,
+)
 
 
 class AsyncCapsule(BaseAsyncCapsule):
@@ -151,15 +159,36 @@ class AsyncCapsule(BaseAsyncCapsule):
         language: str = "python",
         timeout: float = 30,
         jupyter_timeout: float = 30,
-    ) -> CodeResult:
-        """Execute code in a persistent Jupyter kernel (async)."""
+        on_result: Callable[[Result], Any] | None = None,
+        on_stdout: Callable[[str], Any] | None = None,
+        on_stderr: Callable[[str], Any] | None = None,
+        on_error: Callable[[ExecutionError], Any] | None = None,
+    ) -> Execution:
+        """Execute code in a persistent Jupyter kernel (async).
+
+        Args:
+            code: Code string to execute.
+            language: Execution backend language. Currently only ``"python"``.
+            timeout: Maximum seconds to wait for execution to complete.
+            jupyter_timeout: Maximum seconds to wait for Jupyter to become
+                available.
+            on_result: Called for each rich output (charts, images, expression
+                values).
+            on_stdout: Called for each stdout chunk.
+            on_stderr: Called for each stderr chunk.
+            on_error: Called when the cell raises an exception.
+
+        Returns:
+            An :class:`Execution` with ``.results``, ``.logs``, ``.error``,
+            and a convenience ``.text`` property.
+        """
         kernel_id = await self._ensure_kernel(jupyter_timeout=jupyter_timeout)
         ws_url = self._jupyter_ws_url(kernel_id)
 
         msg = self._jupyter_execute_request(code)
         msg_id = msg["msg_id"]
 
-        result = CodeResult()
+        execution = Execution()
         deadline = time.monotonic() + timeout
         headers = {"X-API-Key": self._client._api_key}
 
@@ -186,31 +215,43 @@ class AsyncCapsule(BaseAsyncCapsule):
                 content = data.get("content", {})
 
                 if msg_type == "stream":
+                    text = content.get("text", "")
                     name = content.get("name", "stdout")
                     if name == "stderr":
-                        result.stderr += content.get("text", "")
+                        execution.logs.stderr.append(text)
+                        if on_stderr is not None:
+                            on_stderr(text)
                     else:
-                        result.stdout += content.get("text", "")
-                elif msg_type == "execute_result":
+                        execution.logs.stdout.append(text)
+                        if on_stdout is not None:
+                            on_stdout(text)
+                elif msg_type in ("execute_result", "display_data"):
                     bundle = content.get("data", {})
-                    text = bundle.get("text/plain")
-                    if text and (
-                        (text.startswith("'") and text.endswith("'"))
-                        or (text.startswith('"') and text.endswith('"'))
-                    ):
-                        text = text[1:-1]
-                    result.text = text
-                    result.data = bundle
+                    is_main = msg_type == "execute_result"
+                    result = Result.from_bundle(bundle, is_main_result=is_main)
+                    execution.results.append(result)
+                    if is_main:
+                        execution.execution_count = content.get(
+                            "execution_count"
+                        )
+                    if on_result is not None:
+                        on_result(result)
                 elif msg_type == "error":
-                    traceback = content.get("traceback", [])
-                    result.error = "\n".join(traceback)
-                elif msg_type == "status" and content.get("execution_state") == "idle":
+                    err = ExecutionError(
+                        name=content.get("ename", ""),
+                        value=content.get("evalue", ""),
+                        traceback="\n".join(content.get("traceback", [])),
+                    )
+                    execution.error = err
+                    if on_error is not None:
+                        on_error(err)
+                elif (
+                    msg_type == "status"
+                    and content.get("execution_state") == "idle"
+                ):
                     break
 
-        if result.text is None and result.stdout:
-            result.text = result.stdout.strip()
-
-        return result
+        return execution
 
     async def __aexit__(self, *args) -> None:
         if self._proxy_client is not None:

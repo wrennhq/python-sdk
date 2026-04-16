@@ -4,7 +4,7 @@ import pytest
 import respx
 
 from wrenn.capsule import Capsule, _build_proxy_url
-from wrenn.code_interpreter.capsule import CodeResult
+from wrenn.code_interpreter.models import Execution, ExecutionError, Logs, Result
 
 BASE = "https://app.wrenn.dev/api"
 
@@ -120,30 +120,61 @@ class TestCapsuleConnect:
         assert cap.capsule_id == "cl-1"
 
 
-class TestCodeResult:
-    def test_defaults(self):
-        r = CodeResult()
-        assert r.text is None
-        assert r.data is None
-        assert r.stdout == ""
-        assert r.stderr == ""
-        assert r.error is None
+class TestExecutionModels:
+    def test_execution_defaults(self):
+        e = Execution()
+        assert e.results == []
+        assert e.logs.stdout == []
+        assert e.logs.stderr == []
+        assert e.error is None
+        assert e.text is None
 
-    def test_with_values(self):
-        r = CodeResult(
-            text="84",
-            data={"text/plain": "84"},
-            stdout="",
-            stderr="",
-            error=None,
-        )
+    def test_result_from_bundle(self):
+        bundle = {"text/plain": "84", "image/png": "base64data"}
+        r = Result.from_bundle(bundle, is_main_result=True)
         assert r.text == "84"
-        assert r.data["text/plain"] == "84"
+        assert r.png == "base64data"
+        assert r.is_main_result is True
 
-    def test_error_result(self):
-        r = CodeResult(error="ZeroDivisionError: division by zero\n...")
-        assert r.error is not None
-        assert "ZeroDivisionError" in r.error
+    def test_result_from_bundle_strips_quotes(self):
+        bundle = {"text/plain": "'hello'"}
+        r = Result.from_bundle(bundle)
+        assert r.text == "hello"
+
+    def test_result_from_bundle_extra_mimes(self):
+        bundle = {"text/plain": "x", "application/vnd.custom": "data"}
+        r = Result.from_bundle(bundle)
+        assert r.extra == {"application/vnd.custom": "data"}
+
+    def test_result_formats(self):
+        r = Result(text="hi", png="data")
+        assert "text" in r.formats()
+        assert "png" in r.formats()
+        assert "html" not in r.formats()
+
+    def test_execution_text_property(self):
+        e = Execution(
+            results=[
+                Result(text="chart", is_main_result=False),
+                Result(text="42", is_main_result=True),
+            ]
+        )
+        assert e.text == "42"
+
+    def test_execution_error(self):
+        err = ExecutionError(
+            name="ZeroDivisionError",
+            value="division by zero",
+            traceback="Traceback ...\nZeroDivisionError: division by zero",
+        )
+        e = Execution(error=err)
+        assert e.error is not None
+        assert "ZeroDivisionError" in e.error.name
+
+    def test_logs(self):
+        logs = Logs(stdout=["hello\n", "world\n"], stderr=["warn\n"])
+        assert "".join(logs.stdout) == "hello\nworld\n"
+        assert "".join(logs.stderr) == "warn\n"
 
 
 class TestDeprecationWarnings:

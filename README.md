@@ -273,7 +273,7 @@ from wrenn.code_interpreter import Capsule
 
 with Capsule(wait=True) as capsule:
     result = capsule.run_code("print('hello')")
-    print(result.text)  # "hello"
+    print("".join(result.logs.stdout))  # "hello\n"
 ```
 
 ### Stateful Execution
@@ -297,25 +297,43 @@ with Capsule(wait=True) as capsule:
     print(result.text)  # "hello world"
 ```
 
-The `text` field returns the expression result when available. For `print()` calls (which produce no expression result), it falls back to the stripped stdout output.
+The `text` property returns the `text/plain` value of the main `execute_result` (the last expression in the cell). Printed output goes to `result.logs.stdout` instead.
 
 ### Error Handling in Code
 
 ```python
 result = capsule.run_code("1 / 0")
-print(result.error)  # "ZeroDivisionError: division by zero\n..."
+print(result.error.name)       # "ZeroDivisionError"
+print(result.error.value)      # "division by zero"
+print(result.error.traceback)  # full traceback string
 ```
 
 ### Rich Output
+
+Each call to `display()`, `plt.show()`, or similar produces a `Result` in `execution.results`. Known MIME types are unpacked into named fields:
 
 ```python
 result = capsule.run_code("""
 import matplotlib.pyplot as plt
 plt.plot([1, 2, 3])
-plt.savefig('/tmp/plot.png')
 plt.show()
 """)
-print(result.data)  # {"image/png": "base64...", "text/plain": "..."}
+for r in result.results:
+    if r.png:
+        print(f"Got PNG image ({len(r.png)} bytes base64)")
+    print(r.formats())  # e.g. ["text", "png"]
+```
+
+### Streaming Callbacks
+
+```python
+capsule.run_code(
+    code,
+    on_result=lambda r: print("result:", r.formats()),
+    on_stdout=lambda text: print("stdout:", text),
+    on_stderr=lambda text: print("stderr:", text),
+    on_error=lambda err: print(f"error: {err.name}: {err.value}"),
+)
 ```
 
 ### Custom Templates
@@ -327,17 +345,19 @@ capsule = Capsule(template="my-custom-jupyter-template", wait=True)
 result = capsule.run_code("print('running on custom template')")
 ```
 
-### CodeResult Fields
+### Execution Model
+
+`run_code()` returns an `Execution` object:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `text` | `str \| None` | Expression result, or stripped stdout if no expression result |
-| `data` | `dict \| None` | Rich MIME bundle (e.g. `{"image/png": "..."}`) |
-| `stdout` | `str` | Raw accumulated stdout output |
-| `stderr` | `str` | Raw accumulated stderr output |
-| `error` | `str \| None` | Error traceback string |
+| `results` | `list[Result]` | All rich outputs (charts, images, expression values) |
+| `logs` | `Logs` | `.stdout: list[str]` and `.stderr: list[str]` chunks |
+| `error` | `ExecutionError \| None` | `.name`, `.value`, `.traceback` |
+| `execution_count` | `int \| None` | Jupyter cell execution counter |
+| `text` | `str \| None` | (property) `text/plain` of the main `execute_result` |
 
-String expression results have quotes stripped automatically (e.g. `'hello'` becomes `hello`).
+Each `Result` has typed MIME fields: `text`, `html`, `markdown`, `svg`, `png`, `jpeg`, `pdf`, `latex`, `json`, `javascript`, plus `extra` for unknown types. String expression results have quotes stripped automatically.
 
 ### Code Interpreter + Commands/Files
 

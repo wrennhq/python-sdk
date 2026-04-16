@@ -1,10 +1,19 @@
 from wrenn.code_interpreter.async_capsule import AsyncCapsule
-from wrenn.code_interpreter.capsule import Capsule, CodeResult
+from wrenn.code_interpreter.capsule import Capsule
+from wrenn.code_interpreter.models import (
+    Execution,
+    ExecutionError,
+    Logs,
+    Result,
+)
 
 __all__ = [
     "AsyncCapsule",
     "Capsule",
-    "CodeResult",
+    "Execution",
+    "ExecutionError",
+    "Logs",
+    "Result",
     "Sandbox",
 ]
 

@@ -2,7 +2,7 @@
 .PHONY: generate lint test check test-integration
 
 # Variables
-SPEC_URL = "https://git.omukk.dev/wrenn/wrenn/raw/branch/dev/internal/api/openapi.yaml"
+SPEC_URL = "https://git.omukk.dev/wrenn/wrenn/raw/branch/main/internal/api/openapi.yaml"
 SPEC_PATH = "api/openapi.yaml"
 
 generate:
