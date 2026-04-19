@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from wrenn.capsule import Capsule
+from wrenn.capsule import Capsule, ExecResult
 
 from .conftest import requires_auth
 
@@ -14,6 +14,7 @@ class TestAsyncCapsuleLifecycle:
     @pytest.mark.asyncio
     async def test_async_create_exec_destroy(self, async_minimal_capsule: Capsule):
         result = await async_minimal_capsule.async_exec("echo", args=["async_hello"])
+        assert isinstance(result, ExecResult)
         assert result.exit_code == 0
         assert "async_hello" in result.stdout
 

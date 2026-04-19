@@ -7,6 +7,7 @@ import pytest
 import pytest_asyncio
 from typing_extensions import AsyncGenerator
 
+from wrenn.capsule import Capsule
 from wrenn.client import AsyncWrennClient, WrennClient
 
 WRENN_API_KEY = os.environ.get("WRENN_API_KEY")
@@ -61,7 +62,9 @@ def bearer_client() -> Generator[WrennClient, None, None]:
 
 
 @pytest_asyncio.fixture
-async def async_minimal_capsule(async_client: AsyncWrennClient):
+async def async_minimal_capsule(
+    async_client: AsyncWrennClient,
+) -> AsyncGenerator[Capsule, None]:
     """Provides a ready-to-use minimal capsule and cleans it up afterward."""
     cap = await async_client.capsules.create(template="minimal", timeout_sec=120)
     await cap.async_wait_ready(timeout=60, interval=1)
@@ -70,7 +73,9 @@ async def async_minimal_capsule(async_client: AsyncWrennClient):
 
 
 @pytest_asyncio.fixture
-async def async_python_capsule(async_client: AsyncWrennClient):
+async def async_python_capsule(
+    async_client: AsyncWrennClient,
+) -> AsyncGenerator[Capsule, None]:
     """Provides a ready-to-use Python interpreter capsule."""
     cap = await async_client.capsules.create(
         template="python-interpreter-v0-beta", timeout_sec=120
@@ -83,7 +88,7 @@ async def async_python_capsule(async_client: AsyncWrennClient):
 @pytest.fixture
 def minimal_capsule(
     client: WrennClient,
-) -> Generator[Any, None, None]:  # Replace Any with your Capsule type
+) -> Generator[Capsule, None, None]:
     """Provides a ready-to-use minimal capsule and cleans it up afterward."""
     with client.capsules.create(template="minimal", timeout_sec=120) as cap:
         cap.wait_ready(timeout=60, interval=1)

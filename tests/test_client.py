@@ -16,24 +16,29 @@ from wrenn.exceptions import (
 )
 from wrenn.models import (
     APIKeyResponse,
-    AuthResponse,
     Capsule,
     CreateHostResponse,
     Host,
+    SignupResponse,
     Status,
     Template,
+    UsageResponse,
 )
 
 
 @pytest.fixture
 def client():
-    with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
+    with WrennClient(
+        api_key="wrn_test1234567890abcdef12345678", token="jwt-test-token-abc123"
+    ) as c:
         yield c
 
 
 @pytest.fixture
 def async_client():
-    return AsyncWrennClient(api_key="wrn_test1234567890abcdef12345678")
+    return AsyncWrennClient(
+        api_key="wrn_test1234567890abcdef12345678", token="jwt-test-token-abc123"
+    )
 
 
 class TestAuth:
@@ -41,17 +46,21 @@ class TestAuth:
     def test_signup(self, client):
         respx.post("https://api.wrenn.dev/v1/auth/signup").respond(
             201,
-            json={
-                "token": "jwt-token",
-                "user_id": "u-1",
-                "team_id": "t-1",
-                "email": "a@b.com",
-            },
+            json={"message": "Account created. Check your email to activate."},
         )
-        resp = client.auth.signup("a@b.com", "password123")
-        assert isinstance(resp, AuthResponse)
-        assert resp.token == "jwt-token"
-        assert resp.user_id == "u-1"
+        resp = client.auth.signup("a@b.com", "password123", "Test User")
+        assert isinstance(resp, SignupResponse)
+        assert resp.message is not None
+
+    @respx.mock
+    def test_signup_no_creds(self):
+        respx.post("https://api.wrenn.dev/v1/auth/signup").respond(
+            201,
+            json={"message": "Account created."},
+        )
+        with WrennClient() as c:
+            resp = c.auth.signup("a@b.com", "password123", "Test User")
+            assert isinstance(resp, SignupResponse)
 
     @respx.mock
     def test_login(self, client):
@@ -145,6 +154,40 @@ class TestCapsules:
         route = respx.delete("https://api.wrenn.dev/v1/capsules/sb-1").respond(204)
         client.capsules.destroy("sb-1")
         assert route.called
+
+    @respx.mock
+    def test_usage(self, client):
+        respx.get("https://api.wrenn.dev/v1/capsules/usage").respond(
+            200,
+            json={
+                "from": "2026-03-21",
+                "to": "2026-04-20",
+                "points": [
+                    {
+                        "date": "2026-04-19",
+                        "cpu_minutes": 12.5,
+                        "ram_mb_minutes": 640.0,
+                    },
+                    {"date": "2026-04-20", "cpu_minutes": 8.0, "ram_mb_minutes": 512.0},
+                ],
+            },
+        )
+        resp = client.capsules.usage()
+        assert isinstance(resp, UsageResponse)
+        assert resp.points is not None
+        assert len(resp.points) == 2
+        assert resp.points[0].cpu_minutes == 12.5
+
+    @respx.mock
+    def test_usage_with_dates(self, client):
+        route = respx.get("https://api.wrenn.dev/v1/capsules/usage").respond(
+            200,
+            json={"from": "2026-04-01", "to": "2026-04-15", "points": []},
+        )
+        client.capsules.usage(from_date="2026-04-01", to_date="2026-04-15")
+        req = route.calls[0].request
+        assert "from=2026-04-01" in str(req.url)
+        assert "to=2026-04-15" in str(req.url)
 
 
 class TestSnapshots:
@@ -355,25 +398,92 @@ class TestErrorHandling:
 
 
 class TestAuthModes:
-    def test_api_key_header(self):
+    def test_api_key_only_creates_data_client(self):
         with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
-            assert c._http.headers["X-API-Key"] == "wrn_test1234567890abcdef12345678"
+            assert c._data_http is not None
+            assert (
+                c._data_http.headers["X-API-Key"] == "wrn_test1234567890abcdef12345678"
+            )
+            assert c._mgmt_http is None
 
-    def test_token_header(self):
+    def test_token_only_creates_mgmt_client(self):
         with WrennClient(token="jwt-token-abc") as c:
-            assert c._http.headers["Authorization"] == "Bearer jwt-token-abc"
+            assert c._mgmt_http is not None
+            assert c._mgmt_http.headers["Authorization"] == "Bearer jwt-token-abc"
+            assert c._data_http is None
 
-    def test_no_auth_raises(self):
-        with pytest.raises(ValueError, match="Either api_key or token"):
-            WrennClient()
+    def test_no_auth_allowed(self):
+        with WrennClient() as c:
+            assert c._data_http is None
+            assert c._mgmt_http is None
+            assert c._public_http is not None
+
+    def test_both_creds_creates_both_clients(self):
+        with WrennClient(
+            api_key="wrn_test1234567890abcdef12345678", token="jwt-abc"
+        ) as c:
+            assert c._data_http is not None
+            assert c._mgmt_http is not None
+
+    def test_capsule_ops_require_api_key(self):
+        with WrennClient(token="jwt-abc") as c:
+            with pytest.raises(ValueError, match="API key"):
+                c.capsules.list()
+
+    def test_snapshot_ops_require_api_key(self):
+        with WrennClient(token="jwt-abc") as c:
+            with pytest.raises(ValueError, match="API key"):
+                c.snapshots.list()
+
+    def test_mgmt_ops_require_token(self):
+        with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
+            with pytest.raises(ValueError, match="JWT token"):
+                c.api_keys.list()
+            with pytest.raises(ValueError, match="JWT token"):
+                c.teams.list()
+            with pytest.raises(ValueError, match="JWT token"):
+                c.hosts.list()
+            with pytest.raises(ValueError, match="JWT token"):
+                c.channels.list()
+            with pytest.raises(ValueError, match="JWT token"):
+                c.users.search("a@b.com")
+            with pytest.raises(ValueError, match="JWT token"):
+                c.account.get()
+            with pytest.raises(ValueError, match="JWT token"):
+                c.auth.switch_team("team-1")
 
     @respx.mock
-    def test_jwt_auth_on_api_keys(self):
+    def test_mgmt_sends_bearer_only(self):
         route = respx.get("https://api.wrenn.dev/v1/api-keys").respond(200, json=[])
-        with WrennClient(token="jwt-abc") as c:
+        with WrennClient(
+            api_key="wrn_test1234567890abcdef12345678", token="jwt-abc"
+        ) as c:
             c.api_keys.list()
         req = route.calls[0].request
         assert req.headers["Authorization"] == "Bearer jwt-abc"
+        assert "X-API-Key" not in req.headers
+
+    @respx.mock
+    def test_data_sends_api_key_only(self):
+        route = respx.get("https://api.wrenn.dev/v1/capsules").respond(200, json=[])
+        with WrennClient(
+            api_key="wrn_test1234567890abcdef12345678", token="jwt-abc"
+        ) as c:
+            c.capsules.list()
+        req = route.calls[0].request
+        assert req.headers["X-API-Key"] == "wrn_test1234567890abcdef12345678"
+        assert "Authorization" not in req.headers
+
+    @respx.mock
+    def test_public_sends_no_auth(self):
+        route = respx.post("https://api.wrenn.dev/v1/auth/signup").respond(
+            201, json={"message": "ok"}
+        )
+        with WrennClient() as c:
+            c.auth.signup("a@b.com", "password123", "Test")
+        req = route.calls[0].request
+        assert "X-API-Key" not in req.headers
+        assert "Authorization" not in req.headers
 
 
 class TestAsyncClient:

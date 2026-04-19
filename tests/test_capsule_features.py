@@ -9,7 +9,9 @@ from wrenn.client import WrennClient
 
 @pytest.fixture
 def client():
-    with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
+    with WrennClient(
+        api_key="wrn_test1234567890abcdef12345678", token="jwt-test-token-abc123"
+    ) as c:
         yield c
 
 
@@ -81,14 +83,20 @@ class TestCapsuleHttpClient:
     def test_jwt_only_get_url_works(self):
         with WrennClient(token="jwt-abc") as c:
             cap = Capsule(id="cl-abc")
-            cap._bind(c._http, str(c._http.base_url), api_key=None, token="jwt-abc")
+            assert c._mgmt_http is not None
+            cap._bind(
+                c._mgmt_http, str(c._mgmt_http.base_url), api_key=None, token="jwt-abc"
+            )
             url = cap.get_url(8888)
             assert "8888-cl-abc" in url
 
     def test_jwt_only_http_client_has_bearer_header(self):
         with WrennClient(token="jwt-abc") as c:
             cap = Capsule(id="cl-abc")
-            cap._bind(c._http, str(c._http.base_url), api_key=None, token="jwt-abc")
+            assert c._mgmt_http is not None
+            cap._bind(
+                c._mgmt_http, str(c._mgmt_http.base_url), api_key=None, token="jwt-abc"
+            )
             hc = cap.http_client
             assert hc.headers["Authorization"] == "Bearer jwt-abc"
 
@@ -136,6 +144,7 @@ class TestCodeResult:
             error=None,
         )
         assert r.text == "84"
+        assert r.data is not None
         assert r.data["text/plain"] == "84"
 
     def test_error_result(self):
@@ -164,7 +173,6 @@ class TestJupyterMessageFormat:
 
 class TestDeprecationWarnings:
     def test_import_sandbox_from_capsule_warns(self):
-        import importlib
         import warnings
 
         import wrenn.capsule as capsule_mod

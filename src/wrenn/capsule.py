@@ -15,13 +15,18 @@ import httpx
 import httpx_ws
 
 from wrenn.exceptions import handle_response
-from wrenn.models import Capsule as CapsuleModel
 from wrenn.models import (
+    BackgroundExecResponse,
+    CapsuleMetrics,
     ExecResponse,
     FileEntry,
     ListDirResponse,
     MakeDirResponse,
+    ProcessListResponse,
     Status,
+)
+from wrenn.models import (
+    Capsule as CapsuleModel,
 )
 from wrenn.pty import AsyncPtySession, PtySession
 
@@ -164,16 +169,16 @@ class Capsule(CapsuleModel):
     helpers, and context-manager support for automatic cleanup.
     """
 
-    _http: httpx.Client | None
-    _async_http: httpx.AsyncClient | None
-    _base_url: str
-    _api_key: str | None
-    _token: str | None
-    _proxy_client: httpx.Client | None
-    _async_proxy_client: httpx.AsyncClient | None
-    _kernel_id: str | None
-    _jupyter_ws: Any
-    _async_jupyter_ws: Any
+    _http: httpx.Client | None = None
+    _async_http: httpx.AsyncClient | None = None
+    _base_url: str = ""
+    _api_key: str | None = None
+    _token: str | None = None
+    _proxy_client: httpx.Client | None = None
+    _async_proxy_client: httpx.AsyncClient | None = None
+    _kernel_id: str | None = None
+    _jupyter_ws: Any = None
+    _async_jupyter_ws: Any = None
 
     def _bind(
         self,
@@ -296,16 +301,25 @@ class Capsule(CapsuleModel):
         cmd: str,
         args: list[str] | None = None,
         timeout_sec: int | None = 30,
-    ) -> ExecResult:
+        background: bool = False,
+        tag: str | None = None,
+        envs: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> ExecResult | BackgroundExecResponse:
         """Execute a command synchronously inside the capsule.
 
         Args:
             cmd: Command to run.
             args: Optional positional arguments.
-            timeout_sec: Execution timeout in seconds.
+            timeout_sec: Execution timeout in seconds (foreground only).
+            background: If true, start as a background process and return immediately.
+            tag: Optional tag for the background process.
+            envs: Environment variables (background only).
+            cwd: Working directory (background only).
 
         Returns:
-            An ``ExecResult`` with ``stdout``, ``stderr``, ``exit_code``, ``duration_ms``.
+            An ``ExecResult`` for foreground exec, or ``BackgroundExecResponse``
+            when ``background=True`` (HTTP 202).
         """
         assert self._http is not None
         payload: dict = {"cmd": cmd}
@@ -313,7 +327,17 @@ class Capsule(CapsuleModel):
             payload["args"] = args
         if timeout_sec is not None:
             payload["timeout_sec"] = timeout_sec
+        if background:
+            payload["background"] = True
+        if tag is not None:
+            payload["tag"] = tag
+        if envs is not None:
+            payload["envs"] = envs
+        if cwd is not None:
+            payload["cwd"] = cwd
         resp = self._http.post(f"/v1/capsules/{self.id}/exec", json=payload)
+        if resp.status_code == 202:
+            return BackgroundExecResponse.model_validate(resp.json())
         resp.raise_for_status()
         er = ExecResponse.model_validate(resp.json())
         stdout = er.stdout or ""
@@ -335,7 +359,11 @@ class Capsule(CapsuleModel):
         cmd: str,
         args: list[str] | None = None,
         timeout_sec: int | None = 30,
-    ) -> ExecResult:
+        background: bool = False,
+        tag: str | None = None,
+        envs: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> ExecResult | BackgroundExecResponse:
         """Async version of ``exec``."""
         assert self._async_http is not None
         payload: dict = {"cmd": cmd}
@@ -343,7 +371,17 @@ class Capsule(CapsuleModel):
             payload["args"] = args
         if timeout_sec is not None:
             payload["timeout_sec"] = timeout_sec
+        if background:
+            payload["background"] = True
+        if tag is not None:
+            payload["tag"] = tag
+        if envs is not None:
+            payload["envs"] = envs
+        if cwd is not None:
+            payload["cwd"] = cwd
         resp = await self._async_http.post(f"/v1/capsules/{self.id}/exec", json=payload)
+        if resp.status_code == 202:
+            return BackgroundExecResponse.model_validate(resp.json())
         resp.raise_for_status()
         er = ExecResponse.model_validate(resp.json())
         stdout = er.stdout or ""
@@ -861,11 +899,17 @@ class Capsule(CapsuleModel):
         resp = self._http.delete(f"/v1/capsules/{self.id}")
         resp.raise_for_status()
 
+        if self._proxy_client is not None:
+            self._proxy_client.close()
+
     async def async_destroy(self) -> None:
         """Async version of ``destroy``."""
         assert self._async_http is not None
         resp = await self._async_http.delete(f"/v1/capsules/{self.id}")
         resp.raise_for_status()
+
+        if self._async_proxy_client is not None:
+            await self._async_proxy_client.aclose()
 
     def _ensure_kernel(self, jupyter_timeout: float = 30) -> str:
         """Ensure a Jupyter kernel is running, creating one if needed.
@@ -1112,6 +1156,115 @@ class Capsule(CapsuleModel):
                     break
 
         return result
+
+    def metrics(self, range: str = "10m") -> CapsuleMetrics:
+        """Get per-capsule resource metrics.
+
+        Args:
+            range: Time range filter (5m, 10m, 1h, 2h, 6h, 12h, 24h).
+
+        Returns:
+            ``CapsuleMetrics`` with time-series CPU, memory, and disk data.
+        """
+        assert self._http is not None
+        resp = self._http.get(
+            f"/v1/capsules/{self.id}/metrics", params={"range": range}
+        )
+        data = handle_response(resp)
+        return CapsuleMetrics.model_validate(data)
+
+    async def async_metrics(self, range: str = "10m") -> CapsuleMetrics:
+        """Async version of ``metrics``."""
+        assert self._async_http is not None
+        resp = await self._async_http.get(
+            f"/v1/capsules/{self.id}/metrics", params={"range": range}
+        )
+        data = handle_response(resp)
+        return CapsuleMetrics.model_validate(data)
+
+    def list_processes(self) -> ProcessListResponse:
+        """List all running processes inside the capsule.
+
+        Returns:
+            ``ProcessListResponse`` with a list of ``ProcessEntry`` objects.
+        """
+        assert self._http is not None
+        resp = self._http.get(f"/v1/capsules/{self.id}/processes")
+        data = handle_response(resp)
+        return ProcessListResponse.model_validate(data)
+
+    async def async_list_processes(self) -> ProcessListResponse:
+        """Async version of ``list_processes``."""
+        assert self._async_http is not None
+        resp = await self._async_http.get(f"/v1/capsules/{self.id}/processes")
+        data = handle_response(resp)
+        return ProcessListResponse.model_validate(data)
+
+    def kill_process(self, selector: str, signal: str = "SIGKILL") -> None:
+        """Kill a running process inside the capsule.
+
+        Args:
+            selector: Process PID (numeric) or tag (string).
+            signal: Signal to send (SIGKILL or SIGTERM).
+        """
+        assert self._http is not None
+        resp = self._http.delete(
+            f"/v1/capsules/{self.id}/processes/{selector}",
+            params={"signal": signal},
+        )
+        handle_response(resp)
+
+    async def async_kill_process(self, selector: str, signal: str = "SIGKILL") -> None:
+        """Async version of ``kill_process``."""
+        assert self._async_http is not None
+        resp = await self._async_http.delete(
+            f"/v1/capsules/{self.id}/processes/{selector}",
+            params={"signal": signal},
+        )
+        handle_response(resp)
+
+    def connect_process(self, selector: str) -> Iterator[StreamEvent]:
+        """Stream output from a background process via WebSocket.
+
+        Args:
+            selector: Process PID (numeric) or tag (string).
+
+        Yields:
+            ``StreamStartEvent``, ``StreamStdoutEvent``, ``StreamStderrEvent``,
+            ``StreamExitEvent``, or ``StreamErrorEvent``.
+        """
+        assert self._http is not None
+        ws: httpx_ws.WebSocketSession
+        with httpx_ws.connect_ws(
+            f"/v1/capsules/{self.id}/processes/{selector}/stream",
+            self._http,
+        ) as ws:
+            while True:
+                try:
+                    raw_data: dict = ws.receive_json()
+                    event = _parse_stream_event(raw_data)
+                    yield event
+                    if event.type in ("exit", "error"):
+                        break
+                except httpx_ws.WebSocketDisconnect:
+                    break
+
+    async def async_connect_process(self, selector: str) -> AsyncIterator[StreamEvent]:
+        """Async version of ``connect_process``."""
+        assert self._async_http is not None
+        async with httpx_ws.aconnect_ws(
+            f"/v1/capsules/{self.id}/processes/{selector}/stream",
+            self._async_http,
+        ) as ws:
+            try:
+                while True:
+                    raw_data = await ws.receive_json()
+                    event = _parse_stream_event(raw_data)
+                    yield event
+                    if event.type in ("exit", "error"):
+                        break
+            except httpx_ws.WebSocketDisconnect:
+                pass
 
     def _cleanup(self) -> None:
         if self._proxy_client is not None:
