@@ -1,10 +1,11 @@
 [project]
 name = "wrenn"
 version = "0.1.0"
-description = "Add your description here"
+description = "Python SDK for Wrenn"
 readme = "README.md"
 authors = [
-    { name = "Tasnim Kabir Sadik", email = "tksadik92@gmail.com" }
+    { name = "Rafeed M. Bhuiyan", email = "rafeed@omukk.dev" }
+    { name = "Tasnim Kabir Sadik", email = "tksadik@omukk.dev" }
 ]
 requires-python = ">=3.13"
 dependencies = [
