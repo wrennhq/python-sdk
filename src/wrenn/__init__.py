@@ -1,3 +1,13 @@
+from wrenn._git import (
+    AsyncGit,
+    FileStatus,
+    Git,
+    GitAuthError,
+    GitBranch,
+    GitCommandError,
+    GitError,
+    GitStatus,
+)
 from wrenn.async_capsule import AsyncCapsule
 from wrenn.capsule import Capsule
 from wrenn.client import AsyncWrennClient, WrennClient
@@ -32,12 +42,20 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     "AsyncCapsule",
+    "AsyncGit",
     "AsyncPtySession",
     "AsyncWrennClient",
     "Capsule",
     "CommandHandle",
     "CommandResult",
     "FileEntry",
+    "FileStatus",
+    "Git",
+    "GitAuthError",
+    "GitBranch",
+    "GitCommandError",
+    "GitError",
+    "GitStatus",
     "ProcessInfo",
     "PtyEvent",
     "PtyEventType",

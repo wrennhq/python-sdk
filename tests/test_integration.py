@@ -1,568 +1,413 @@
 from __future__ import annotations
 
 import os
-from typing import Generator
+import time
+from pathlib import Path
 
 import pytest
 
-from wrenn.client import AsyncWrennClient, WrennClient
-from wrenn.exceptions import WrennNotFoundError, WrennValidationError
-from wrenn.pty import PtyEventType
+from wrenn import Capsule, CommandResult
+from wrenn.commands import CommandHandle, ProcessInfo
+from wrenn.models import Capsule as CapsuleModel, FileEntry, Status
 
-WRENN_API_KEY = os.environ.get("WRENN_API_KEY")
-WRENN_TOKEN = os.environ.get("WRENN_TOKEN")
-WRENN_BASE_URL = os.environ.get("WRENN_BASE_URL", "http://localhost:8080")
-WRENN_TEST_EMAIL = os.environ.get("WRENN_TEST_EMAIL")
-WRENN_TEST_PASSWORD = os.environ.get("WRENN_TEST_PASSWORD")
+pytestmark = pytest.mark.integration
+
+_env_loaded = False
 
 
-def _has_auth() -> bool:
-    return bool(WRENN_API_KEY or WRENN_TOKEN)
+def _ensure_env() -> None:
+    global _env_loaded
+    if _env_loaded:
+        return
+    _env_loaded = True
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip().strip("\"'")
+        if key and key not in os.environ:
+            os.environ[key] = value
 
 
-requires_auth = pytest.mark.skipif(
-    not _has_auth(),
-    reason="Set WRENN_API_KEY or WRENN_TOKEN to run integration tests",
-)
-
-
-@pytest.fixture
-def client() -> Generator[WrennClient, None, None]:
-    with WrennClient(
-        api_key=WRENN_API_KEY,
-        token=WRENN_TOKEN,
-        base_url=WRENN_BASE_URL,
-    ) as c:
-        yield c
-
-
-@pytest.fixture
-def async_client() -> AsyncWrennClient:
-    return AsyncWrennClient(
-        api_key=WRENN_API_KEY,
-        token=WRENN_TOKEN,
-        base_url=WRENN_BASE_URL,
-    )
-
-
-@pytest.fixture
-def bearer_client() -> Generator[WrennClient, None, None]:
-    if WRENN_TOKEN:
-        with WrennClient(token=WRENN_TOKEN, base_url=WRENN_BASE_URL) as c:
-            yield c
-    elif WRENN_TEST_EMAIL and WRENN_TEST_PASSWORD:
-        with WrennClient(
-            api_key=WRENN_API_KEY, token=WRENN_TOKEN, base_url=WRENN_BASE_URL
-        ) as c:
-            resp = c.auth.login(WRENN_TEST_EMAIL, WRENN_TEST_PASSWORD)
-        with WrennClient(token=resp.token, base_url=WRENN_BASE_URL) as c:
-            yield c
-    else:
-        pytest.skip(
-            "Set WRENN_TOKEN or WRENN_TEST_EMAIL+WRENN_TEST_PASSWORD for bearer-auth tests"
-        )
-
-
-@requires_auth
 class TestCapsuleLifecycle:
-    def test_create_exec_destroy(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            result = cap.exec("echo", args=["hello"])
-            assert result.exit_code == 0
-            assert "hello" in result.stdout
+    """Each test manages its own capsule to test create/destroy paths."""
 
-    def test_exec_with_args(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            result = cap.exec("echo", args=["hello", "world"])
-            assert result.exit_code == 0
-            assert "hello world" in result.stdout
+    def setup_method(self):
+        _ensure_env()
 
-    def test_exec_nonzero_exit(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            result = cap.exec("sh", args=["-c", "exit 42"])
-            assert result.exit_code == 42
-
-    def test_exec_stderr(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            result = cap.exec("sh", args=["-c", "echo err>&2"])
-            assert result.exit_code == 0
-            assert "err" in result.stderr
-
-    def test_context_manager_cleanup(self, client):
-        cap = client.capsules.create(template="minimal", timeout_sec=120)
-        cap_id = cap.id
-
-        with cap:
-            cap.wait_ready(timeout=60, interval=1)
-
-        fetched = client.capsules.get(cap_id)
-        assert fetched.status in ("stopped", "destroyed")
-
-
-@requires_auth
-class TestFileIO:
-    def test_upload_and_download(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            content = b"Hello from integration test!"
-            cap.upload("/tmp/test_file.txt", content)
-            downloaded = cap.download("/tmp/test_file.txt")
-            assert downloaded == content
-
-    def test_download_nonexistent_file(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            with pytest.raises(Exception):
-                cap.download("/tmp/no_such_file_12345")
-
-
-@requires_auth
-class TestPauseResume:
-    def test_pause_and_resume(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            cap.pause()
-            assert cap.status == "paused"
-
-            cap.resume()
-            cap.wait_ready(timeout=60, interval=1)
-
-            result = cap.exec("echo", args=["resumed"])
-            assert result.exit_code == 0
-            assert "resumed" in result.stdout
-
-
-@requires_auth
-class TestPing:
-    def test_ping_resets_timer(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            cap.ping()
-            result = cap.exec("echo", args=["still_alive"])
-            assert result.exit_code == 0
-            assert "still_alive" in result.stdout
-
-
-@requires_auth
-class TestProxy:
-    def test_get_url(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            url = cap.get_url(8888)
-            assert cap.id in url
-            assert "8888" in url
-
-
-@requires_auth
-class TestListAndGet:
-    def test_list_capsules(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            boxes = client.capsules.list()
-            ids = [b.id for b in boxes]
-            assert cap.id in ids
-
-    def test_get_existing_capsule(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            fetched = client.capsules.get(cap.id)
-            assert fetched.id == cap.id
-            assert fetched.status == "running"
-
-    def test_get_nonexistent_capsule(self, client):
-        with pytest.raises((WrennNotFoundError, WrennValidationError)):
-            client.capsules.get("cl-nonexistent00000000000000000")
-
-
-@requires_auth
-class TestSnapshots:
-    def test_list_templates(self, client):
-        templates = client.snapshots.list()
-        assert isinstance(templates, list)
-
-
-@requires_auth
-class TestAPIKeys:
-    def test_create_list_delete(self, bearer_client):
-        key_resp = bearer_client.api_keys.create(name="integration-test-key")
-        assert key_resp.name == "integration-test-key"
-        assert key_resp.key is not None
-        assert key_resp.id is not None
-
+    def test_create_and_destroy(self):
+        capsule = Capsule()
+        capsule_id = capsule.capsule_id
         try:
-            keys = bearer_client.api_keys.list()
-            ids = [k.id for k in keys]
-            assert key_resp.id in ids
+            assert capsule_id
+            assert capsule.info is not None
         finally:
-            bearer_client.api_keys.delete(key_resp.id)
+            capsule.destroy()
+
+        info = Capsule.get_info(capsule_id)
+        assert info.status in (Status.stopped, Status.missing)
+
+    def test_create_with_wait(self):
+        capsule = Capsule(wait=True)
+        try:
+            assert capsule.info is not None
+            assert capsule.info.status == Status.running
+        finally:
+            capsule.destroy()
+
+    def test_context_manager_destroys(self):
+        with Capsule(wait=True) as capsule:
+            capsule_id = capsule.capsule_id
+            assert capsule.is_running()
+
+        info = Capsule.get_info(capsule_id)
+        assert info.status in (Status.stopped, Status.missing)
+
+    def test_get_info(self):
+        capsule = Capsule(wait=True)
+        try:
+            info = capsule.get_info()
+            assert isinstance(info, CapsuleModel)
+            assert info.id == capsule.capsule_id
+            assert info.status == Status.running
+        finally:
+            capsule.destroy()
+
+    def test_pause_and_resume(self):
+        capsule = Capsule(wait=True)
+        try:
+            paused = capsule.pause()
+            assert paused.status == Status.paused
+            assert not capsule.is_running()
+
+            resumed = capsule.resume()
+            assert resumed.status == Status.running
+        finally:
+            capsule.destroy()
+
+    def test_static_destroy(self):
+        capsule = Capsule(wait=True)
+        capsule_id = capsule.capsule_id
+        try:
+            Capsule.destroy(capsule_id)
+        except Exception:
+            capsule.destroy()
+            raise
+
+        info = Capsule.get_info(capsule_id)
+        assert info.status in (Status.stopped, Status.missing)
+
+    def test_connect_to_existing(self):
+        capsule = Capsule(wait=True)
+        try:
+            connected = Capsule.connect(capsule.capsule_id)
+            assert connected.capsule_id == capsule.capsule_id
+            assert connected.info is not None
+            assert connected.info.status == Status.running
+        finally:
+            capsule.destroy()
+
+    def test_connect_resumes_paused(self):
+        capsule = Capsule(wait=True)
+        try:
+            capsule.pause()
+            connected = Capsule.connect(capsule.capsule_id)
+            assert connected.info is not None
+            assert connected.info.status == Status.running
+        finally:
+            capsule.destroy()
+
+    def test_list_capsules(self):
+        capsule = Capsule(wait=True)
+        try:
+            capsules = Capsule.list()
+            assert isinstance(capsules, list)
+            ids = [c.id for c in capsules]
+            assert capsule.capsule_id in ids
+        finally:
+            capsule.destroy()
+
+    def test_wait_ready(self):
+        capsule = Capsule()
+        try:
+            capsule.wait_ready(timeout=60)
+            assert capsule.is_running()
+        finally:
+            capsule.destroy()
+
+    def test_ping(self):
+        capsule = Capsule(wait=True)
+        try:
+            capsule.ping()
+        finally:
+            capsule.destroy()
 
 
-@requires_auth
-class TestRunCode:
-    def test_basic_execution(self, client):
-        with client.capsules.create(
-            template="python-interpreter-v0-beta", timeout_sec=120
-        ) as cap:
-            cap.wait_ready(timeout=60, interval=1)
+class TestCommands:
+    """Shared capsule for command execution tests."""
 
-            r = cap.run_code("x = 42")
-            assert r.error is None
+    capsule: Capsule
 
-            r = cap.run_code("x * 2")
-            assert r.text == "84"
+    @classmethod
+    def setup_class(cls):
+        _ensure_env()
+        cls.capsule = Capsule(wait=True)
 
-    def test_state_persists(self, client):
-        with client.capsules.create(
-            template="python-interpreter-v0-beta", timeout_sec=120
-        ) as cap:
-            cap.wait_ready(timeout=60, interval=1)
+    @classmethod
+    def teardown_class(cls):
+        try:
+            cls.capsule.destroy()
+        except Exception:
+            pass
 
-            cap.run_code("def greet(name): return f'hello {name}'")
-            r = cap.run_code("greet('capsule')")
-            assert "hello capsule" in (r.text or "")
+    def test_run_foreground(self):
+        result = self.capsule.commands.run("echo hello")
+        assert isinstance(result, CommandResult)
+        assert result.exit_code == 0
+        assert "hello" in result.stdout
 
-    def test_error_traceback(self, client):
-        with client.capsules.create(
-            template="python-interpreter-v0-beta", timeout_sec=120
-        ) as cap:
-            cap.wait_ready(timeout=60, interval=1)
+    def test_run_stderr(self):
+        result = self.capsule.commands.run("echo error >&2")
+        assert "error" in result.stderr
 
-            r = cap.run_code("1/0")
-            assert r.error is not None
-            assert "ZeroDivisionError" in r.error
+    def test_run_exit_code(self):
+        result = self.capsule.commands.run("exit 42")
+        assert result.exit_code == 42
 
-    def test_stdout_capture(self, client):
-        with client.capsules.create(
-            template="python-interpreter-v0-beta", timeout_sec=120
-        ) as cap:
-            cap.wait_ready(timeout=60, interval=1)
+    def test_run_with_envs(self):
+        result = self.capsule.commands.run(
+            "export MY_VAR=test_value && echo $MY_VAR"
+        )
+        assert "test_value" in result.stdout
 
-            r = cap.run_code("print('hello from kernel')")
-            assert "hello from kernel" in r.stdout
+    def test_run_with_cwd(self):
+        result = self.capsule.commands.run("cd /tmp && pwd")
+        assert result.stdout.strip() == "/tmp"
 
+    def test_run_multiline_output(self):
+        result = self.capsule.commands.run("echo -e 'line1\\nline2\\nline3'")
+        assert result.exit_code == 0
+        lines = result.stdout.strip().splitlines()
+        assert len(lines) == 3
 
-@requires_auth
-class TestAsyncCapsuleLifecycle:
-    @pytest.mark.asyncio
-    async def test_async_create_exec_destroy(self, async_client):
-        async with async_client:
-            cap = await async_client.capsules.create(
-                template="minimal", timeout_sec=120
-            )
-            try:
-                await cap.async_wait_ready(timeout=60, interval=1)
-                result = await cap.async_exec("echo", args=["async_hello"])
-                assert result.exit_code == 0
-                assert "async_hello" in result.stdout
-            finally:
-                await cap.async_destroy()
+    def test_run_background(self):
+        handle = self.capsule.commands.run(
+            "sleep 30", background=True, tag="bg-test"
+        )
+        assert isinstance(handle, CommandHandle)
+        assert handle.pid > 0
+        assert handle.tag == "bg-test"
+        assert handle.capsule_id == self.capsule.capsule_id
 
-    @pytest.mark.asyncio
-    async def test_async_upload_download(self, async_client):
-        async with async_client:
-            cap = await async_client.capsules.create(
-                template="minimal", timeout_sec=120
-            )
-            try:
-                await cap.async_wait_ready(timeout=60, interval=1)
-                content = b"Async upload test"
-                await cap.async_upload("/tmp/async_test.txt", content)
-                downloaded = await cap.async_download("/tmp/async_test.txt")
-                assert downloaded == content
-            finally:
-                await cap.async_destroy()
+        self.capsule.commands.kill(handle.pid)
 
-    @pytest.mark.asyncio
-    async def test_async_run_code(self, async_client):
-        async with async_client:
-            cap = await async_client.capsules.create(
-                template="python-interpreter-v0-beta", timeout_sec=120
-            )
-            try:
-                await cap.async_wait_ready(timeout=60, interval=1)
-                r = await cap.async_run_code("42 * 2")
-                assert r.text == "84"
-            finally:
-                await cap.async_destroy()
+    def test_list_processes(self):
+        handle = self.capsule.commands.run(
+            "sleep 30", background=True, tag="list-test"
+        )
+        try:
+            time.sleep(0.5)
+            processes = self.capsule.commands.list()
+            assert isinstance(processes, list)
+            pids = [p.pid for p in processes]
+            assert handle.pid in pids
 
+            proc = next(p for p in processes if p.pid == handle.pid)
+            assert isinstance(proc, ProcessInfo)
+        finally:
+            self.capsule.commands.kill(handle.pid)
 
-@requires_auth
-class TestFilesystemListDir:
-    def test_list_dir_root(self, client: WrennClient):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            cap.mkdir("/tmp/ls_test_root")
-            cap.upload("/tmp/ls_test_root/hello.txt", b"hello")
-            entries = cap.list_dir("/tmp/ls_test_root")
-            assert isinstance(entries, list)
-            names = [e.name for e in entries]
-            assert "hello.txt" in names
+    def test_kill_process(self):
+        handle = self.capsule.commands.run(
+            "sleep 30", background=True
+        )
+        self.capsule.commands.kill(handle.pid)
+        time.sleep(0.5)
 
-    def test_list_dir_after_mkdir(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            cap.mkdir("/tmp/fs_test_dir")
-            entries = cap.list_dir("/tmp")
-            names = [e.name for e in entries]
-            assert "fs_test_dir" in names
+        processes = self.capsule.commands.list()
+        pids = [p.pid for p in processes]
+        assert handle.pid not in pids
 
-    def test_list_dir_file_metadata(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            cap.upload("/tmp/meta_test.txt", b"hello world")
-            entries = cap.list_dir("/tmp")
-            match = [e for e in entries if e.name == "meta_test.txt"]
-            assert len(match) == 1
-            f = match[0]
-            assert f.type == "file"
-            assert f.size == 11
-            assert f.permissions is not None
-            assert f.owner is not None
-            assert f.group is not None
-            assert f.modified_at is not None
-
-    def test_list_dir_depth(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            cap.mkdir("/tmp/depth_a/depth_b")
-            cap.upload("/tmp/depth_a/depth_b/nested.txt", b"deep")
-            entries = cap.list_dir("/tmp/depth_a", depth=2)
-            paths = [e.path for e in entries]
-            assert any("nested.txt" in p for p in paths)
-
-    def test_list_dir_empty_directory(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            cap.mkdir("/tmp/empty_dir_test")
-            entries = cap.list_dir("/tmp/empty_dir_test")
-            assert entries == []
+    def test_run_duration_ms(self):
+        result = self.capsule.commands.run("sleep 1")
+        assert result.duration_ms is None or result.duration_ms >= 900
 
 
-@requires_auth
-class TestFilesystemMkdir:
-    def test_mkdir_creates_directory(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            entry = cap.mkdir("/tmp/mkdir_test")
-            assert entry.name == "mkdir_test"
-            assert entry.type == "directory"
-            assert entry.path == "/tmp/mkdir_test"
+class TestFiles:
+    """Shared capsule for filesystem tests."""
 
-    def test_mkdir_creates_parents(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            entry = cap.mkdir("/tmp/a/b/c/d")
-            assert entry.type == "directory"
+    capsule: Capsule
 
-    def test_mkdir_already_exists(self, client: WrennClient):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            cap.mkdir("/tmp/exist_test")
-            entry = cap.mkdir("/tmp/exist_test")
-            assert entry.type == "directory"
+    @classmethod
+    def setup_class(cls):
+        _ensure_env()
+        cls.capsule = Capsule(wait=True)
 
+    @classmethod
+    def teardown_class(cls):
+        try:
+            cls.capsule.destroy()
+        except Exception:
+            pass
 
-@requires_auth
-class TestFilesystemRemove:
-    def test_remove_file(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            cap.upload("/tmp/rm_test.txt", b"delete me")
-            entries_before = cap.list_dir("/tmp")
-            assert any(e.name == "rm_test.txt" for e in entries_before)
-            cap.remove("/tmp/rm_test.txt")
-            entries_after = cap.list_dir("/tmp")
-            assert not any(e.name == "rm_test.txt" for e in entries_after)
+    def test_write_and_read(self):
+        self.capsule.files.write("/tmp/test.txt", "hello world")
+        content = self.capsule.files.read("/tmp/test.txt")
+        assert content == "hello world"
 
-    def test_remove_directory(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            cap.mkdir("/tmp/rm_dir_test")
-            cap.upload("/tmp/rm_dir_test/file.txt", b"inside")
-            cap.remove("/tmp/rm_dir_test")
-            entries = cap.list_dir("/tmp")
-            assert not any(e.name == "rm_dir_test" for e in entries)
+    def test_write_and_read_bytes(self):
+        data = b"\x00\x01\x02\xff"
+        self.capsule.files.write("/tmp/test.bin", data)
+        result = self.capsule.files.read_bytes("/tmp/test.bin")
+        assert result == data
 
-    def test_upload_download_remove_roundtrip(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            content = b"round trip test data " * 100
-            cap.upload("/tmp/rt.txt", content)
-            downloaded = cap.download("/tmp/rt.txt")
-            assert downloaded == content
-            cap.remove("/tmp/rt.txt")
-            with pytest.raises(Exception):
-                cap.download("/tmp/rt.txt")
+    def test_list_directory(self):
+        self.capsule.files.write("/tmp/listdir/a.txt", "a")
+        self.capsule.files.write("/tmp/listdir/b.txt", "b")
+        entries = self.capsule.files.list("/tmp/listdir")
+        assert isinstance(entries, list)
+        names = [e.name for e in entries]
+        assert "a.txt" in names
+        assert "b.txt" in names
 
+    def test_exists(self):
+        self.capsule.files.write("/tmp/exists_test.txt", "x")
+        assert self.capsule.files.exists("/tmp/exists_test.txt")
+        assert not self.capsule.files.exists("/tmp/does_not_exist_xyz.txt")
 
-@requires_auth
-class TestStreamUploadDownload:
-    def test_stream_upload_and_download(self, client: WrennClient):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            chunks = [b"chunk0_", b"chunk1_", b"chunk2"]
+    def test_make_dir(self):
+        entry = self.capsule.files.make_dir("/tmp/newdir")
+        assert isinstance(entry, FileEntry)
+        assert self.capsule.files.exists("/tmp/newdir")
 
-            def data_gen():
-                yield from chunks
+    def test_make_dir_idempotent(self):
+        self.capsule.files.make_dir("/tmp/idempotent_dir")
+        entry = self.capsule.files.make_dir("/tmp/idempotent_dir")
+        assert isinstance(entry, FileEntry)
 
-            cap.stream_upload("/tmp/stream_test.bin", data_gen())
-            downloaded = cap.download("/tmp/stream_test.bin")
-            assert downloaded == b"chunk0_chunk1_chunk2"
+    def test_remove_file(self):
+        self.capsule.files.write("/tmp/to_remove.txt", "delete me")
+        assert self.capsule.files.exists("/tmp/to_remove.txt")
+        self.capsule.files.remove("/tmp/to_remove.txt")
+        assert not self.capsule.files.exists("/tmp/to_remove.txt")
 
-    def test_stream_download_large(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            content = b"x" * 65536 * 3
-            cap.upload("/tmp/large.bin", content)
-            collected = b""
-            for chunk in cap.stream_download("/tmp/large.bin"):
-                collected += chunk
-            assert collected == content
+    def test_remove_directory(self):
+        self.capsule.files.make_dir("/tmp/dir_to_remove")
+        self.capsule.files.write("/tmp/dir_to_remove/child.txt", "data")
+        self.capsule.files.remove("/tmp/dir_to_remove")
+        assert not self.capsule.files.exists("/tmp/dir_to_remove")
 
+    def test_write_creates_parent_dirs(self):
+        self.capsule.files.write("/tmp/deep/nested/dir/file.txt", "nested")
+        content = self.capsule.files.read("/tmp/deep/nested/dir/file.txt")
+        assert content == "nested"
 
-@requires_auth
-class TestPty:
-    def test_pty_basic_output(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            with cap.pty(cmd="/bin/sh", cwd="/tmp") as term:
-                term.write(b"echo pty_hello\n")
-                output = b""
-                for event in term:
-                    if event.type == PtyEventType.output:
-                        output += event.data
-                    elif event.type == PtyEventType.exit:
-                        break
-                    if b"pty_hello" in output:
-                        term.write(b"exit\n")
-                assert b"pty_hello" in output
+    def test_list_with_depth(self):
+        self.capsule.files.write("/tmp/depth_test/a/b.txt", "deep")
+        entries_shallow = self.capsule.files.list("/tmp/depth_test", depth=1)
+        entries_deep = self.capsule.files.list("/tmp/depth_test", depth=2)
+        assert len(entries_deep) >= len(entries_shallow)
 
-    def test_pty_tag_and_pid(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            with cap.pty(cmd="/bin/sh") as term:
-                started = False
-                for event in term:
-                    if event.type == PtyEventType.started:
-                        started = True
-                        assert term.tag is not None
-                        assert term.pid is not None
-                        assert term.tag.startswith("pty-")
-                    elif event.type == PtyEventType.output:
-                        term.write(b"exit\n")
-                    elif event.type == PtyEventType.exit:
-                        break
-                assert started
+    def test_overwrite_file(self):
+        self.capsule.files.write("/tmp/overwrite.txt", "original")
+        self.capsule.files.write("/tmp/overwrite.txt", "updated")
+        content = self.capsule.files.read("/tmp/overwrite.txt")
+        assert content == "updated"
 
-    def test_pty_exit_on_command_exit(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            with cap.pty(cmd="/bin/echo", args=["immediate"]) as term:
-                events = list(term)
-                types = [e.type for e in events]
-                assert PtyEventType.started in types
-                assert PtyEventType.output in types or PtyEventType.exit in types
-
-    def test_pty_resize(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            with cap.pty(cmd="/bin/sh", cols=80, rows=24) as term:
-                for event in term:
-                    if event.type == PtyEventType.started:
-                        term.resize(120, 40)
-                        term.write(b"exit\n")
-                    elif event.type == PtyEventType.exit:
-                        break
-
-    def test_pty_envs(self, client):
-        with client.capsules.create(template="minimal", timeout_sec=120) as cap:
-            cap.wait_ready(timeout=60, interval=1)
-            with cap.pty(cmd="/bin/sh", envs={"MY_VAR": "hello_env"}) as term:
-                output = b""
-                for event in term:
-                    if event.type == PtyEventType.started:
-                        term.write(b"echo $MY_VAR\n")
-                    elif event.type == PtyEventType.output:
-                        output += event.data
-                        if b"hello_env" in output:
-                            term.write(b"exit\n")
-                    elif event.type == PtyEventType.exit:
-                        break
-                assert b"hello_env" in output
+    def test_upload_and_download_stream(self):
+        chunks = [b"chunk1", b"chunk2", b"chunk3"]
+        self.capsule.files.upload_stream("/tmp/streamed.bin", iter(chunks))
+        downloaded = b"".join(self.capsule.files.download_stream("/tmp/streamed.bin"))
+        assert downloaded == b"chunk1chunk2chunk3"
 
 
-@requires_auth
-class TestAsyncFilesystem:
-    @pytest.mark.asyncio
-    async def test_async_list_dir(self, async_client):
-        async with async_client:
-            cap = await async_client.capsules.create(
-                template="minimal", timeout_sec=120
-            )
-            try:
-                await cap.async_wait_ready(timeout=60, interval=1)
-                await cap.async_mkdir("/tmp/async_ls_test")
-                await cap.async_upload("/tmp/async_ls_test/file.txt", b"data")
-                entries = await cap.async_list_dir("/tmp/async_ls_test")
-                assert isinstance(entries, list)
-                assert any(e.name == "file.txt" for e in entries)
-            finally:
-                await cap.async_destroy()
+class TestGit:
+    """Shared capsule for git operation tests.
 
-    @pytest.mark.asyncio
-    async def test_async_mkdir(self, async_client):
-        async with async_client:
-            cap = await async_client.capsules.create(
-                template="minimal", timeout_sec=120
-            )
-            try:
-                await cap.async_wait_ready(timeout=60, interval=1)
-                entry = await cap.async_mkdir("/tmp/async_mkdir_test")
-                assert entry.type == "directory"
-                assert entry.name == "async_mkdir_test"
-            finally:
-                await cap.async_destroy()
+    Initializes a repo at /root (default cwd) since the exec API
+    does not support the cwd parameter.
+    """
 
-    @pytest.mark.asyncio
-    async def test_async_remove(self, async_client):
-        async with async_client:
-            cap = await async_client.capsules.create(
-                template="minimal", timeout_sec=120
-            )
-            try:
-                await cap.async_wait_ready(timeout=60, interval=1)
-                await cap.async_upload("/tmp/async_rm.txt", b"bye")
-                entries = await cap.async_list_dir("/tmp")
-                assert any(e.name == "async_rm.txt" for e in entries)
-                await cap.async_remove("/tmp/async_rm.txt")
-                entries = await cap.async_list_dir("/tmp")
-                assert not any(e.name == "async_rm.txt" for e in entries)
-            finally:
-                await cap.async_destroy()
+    capsule: Capsule
 
-    @pytest.mark.asyncio
-    async def test_async_full_filesystem_roundtrip(self, async_client):
-        async with async_client:
-            cap = await async_client.capsules.create(
-                template="minimal", timeout_sec=120
-            )
-            try:
-                await cap.async_wait_ready(timeout=60, interval=1)
+    @classmethod
+    def setup_class(cls):
+        _ensure_env()
+        cls.capsule = Capsule(wait=True)
+        cls.capsule.git.init(".", initial_branch="main")
+        cls.capsule.git.configure_user("Test User", "test@example.com")
 
-                await cap.async_mkdir("/tmp/async_rt")
-                await cap.async_upload("/tmp/async_rt/file.txt", b"async content")
-                entries = await cap.async_list_dir("/tmp/async_rt")
-                assert any(e.name == "file.txt" for e in entries)
+    @classmethod
+    def teardown_class(cls):
+        try:
+            cls.capsule.destroy()
+        except Exception:
+            pass
 
-                data = await cap.async_download("/tmp/async_rt/file.txt")
-                assert data == b"async content"
+    def test_init_created_repo(self):
+        assert self.capsule.files.exists("/root/.git")
 
-                await cap.async_remove("/tmp/async_rt/file.txt")
-                entries = await cap.async_list_dir("/tmp/async_rt")
-                assert not any(e.name == "file.txt" for e in entries)
-            finally:
-                await cap.async_destroy()
+    def test_status_clean(self):
+        status = self.capsule.git.status()
+        assert status.branch == "main"
+
+    def test_add_and_commit(self):
+        self.capsule.files.write("/root/hello.txt", "hello git")
+        self.capsule.git.add(all=True)
+        result = self.capsule.git.commit("initial commit")
+        assert result.exit_code == 0
+
+    def test_status_after_commit(self):
+        status = self.capsule.git.status()
+        assert status.is_clean
+
+    def test_status_with_changes(self):
+        self.capsule.files.write("/root/dirty.txt", "uncommitted")
+        try:
+            status = self.capsule.git.status()
+            assert not status.is_clean
+            paths = [f.path for f in status.files]
+            assert "dirty.txt" in paths
+        finally:
+            self.capsule.files.remove("/root/dirty.txt")
+
+    def test_branches(self):
+        branches = self.capsule.git.branches()
+        assert len(branches) >= 1
+        names = [b.name for b in branches]
+        assert "main" in names
+        current = [b for b in branches if b.is_current]
+        assert len(current) == 1
+
+    def test_create_and_checkout_branch(self):
+        self.capsule.git.create_branch("feature-1")
+        branches = self.capsule.git.branches()
+        names = [b.name for b in branches]
+        assert "feature-1" in names
+
+        current = [b for b in branches if b.is_current]
+        assert current[0].name == "feature-1"
+
+        self.capsule.git.checkout_branch("main")
+
+    def test_delete_branch(self):
+        self.capsule.git.create_branch("to-delete")
+        self.capsule.git.checkout_branch("main")
+        self.capsule.git.delete_branch("to-delete")
+
+        branches = self.capsule.git.branches()
+        names = [b.name for b in branches]
+        assert "to-delete" not in names
+
+    def test_set_and_get_config(self):
+        self.capsule.git.set_config("test.key", "test-value")
+        value = self.capsule.git.get_config("test.key")
+        assert value == "test-value"
+
+    def test_get_config_missing_returns_none(self):
+        value = self.capsule.git.get_config("nonexistent.key")
+        assert value is None

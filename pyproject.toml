@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Python SDK for Wrenn"
 readme = "README.md"
 authors = [
-    { name = "Rafeed M. Bhuiyan", email = "rafeed@omukk.dev" }
-    { name = "Tasnim Kabir Sadik", email = "tksadik@omukk.dev" }
+    { name = "Rafeed M. Bhuiyan", email = "rafeed@omukk.dev" },
+    { name = "Tasnim Kabir Sadik", email = "tksadik@omukk.dev" },
 ]
 requires-python = ">=3.13"
 dependencies = [

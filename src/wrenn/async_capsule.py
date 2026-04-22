@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 import httpx_ws
 
+from wrenn._git import AsyncGit
 from wrenn.capsule import _DualMethod, _build_proxy_url
 from wrenn.client import AsyncWrennClient
 from wrenn.commands import AsyncCommands
@@ -42,6 +43,7 @@ class AsyncCapsule:
 
         self.commands = AsyncCommands(_capsule_id, _client.http)
         self.files = AsyncFiles(_capsule_id, _client.http)
+        self.git = AsyncGit(_capsule_id, _client.http)
 
     # ── Properties ──────────────────────────────────────────────
 

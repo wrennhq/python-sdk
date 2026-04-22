@@ -183,7 +183,11 @@ class Commands:
             CommandHandle: PID and tag for background commands
             (``background=True``).
         """
-        payload: dict = {"cmd": cmd, "background": background}
+        payload: dict = {
+            "cmd": "/bin/sh",
+            "args": ["-c", cmd],
+            "background": background,
+        }
         if timeout is not None and not background:
             payload["timeout_sec"] = timeout
         if envs is not None:
@@ -271,6 +275,8 @@ class Commands:
         Args:
             cmd (str): Command to execute.
             args (list[str] | None): Additional arguments for the command.
+                When omitted, *cmd* is interpreted as a shell command
+                string and executed via ``/bin/sh -c``.
 
         Yields:
             StreamEvent: Successive events including :class:`StreamStartEvent`,
@@ -281,9 +287,10 @@ class Commands:
             f"/v1/capsules/{self._capsule_id}/exec/stream",
             self._http,
         ) as ws:
-            start_msg: dict = {"type": "start", "cmd": cmd}
             if args:
-                start_msg["args"] = args
+                start_msg: dict = {"type": "start", "cmd": cmd, "args": args}
+            else:
+                start_msg = {"type": "start", "cmd": "/bin/sh", "args": ["-c", cmd]}
             ws.send_text(json.dumps(start_msg))
             while True:
                 try:
@@ -359,7 +366,11 @@ class AsyncCommands:
             CommandHandle: PID and tag for background commands
             (``background=True``).
         """
-        payload: dict = {"cmd": cmd, "background": background}
+        payload: dict = {
+            "cmd": "/bin/sh",
+            "args": ["-c", cmd],
+            "background": background,
+        }
         if timeout is not None and not background:
             payload["timeout_sec"] = timeout
         if envs is not None:
@@ -449,6 +460,8 @@ class AsyncCommands:
         Args:
             cmd (str): Command to execute.
             args (list[str] | None): Additional arguments for the command.
+                When omitted, *cmd* is interpreted as a shell command
+                string and executed via ``/bin/sh -c``.
 
         Yields:
             StreamEvent: Successive events including :class:`StreamStartEvent`,
@@ -459,9 +472,10 @@ class AsyncCommands:
             f"/v1/capsules/{self._capsule_id}/exec/stream",
             self._http,
         ) as ws:
-            start_msg: dict = {"type": "start", "cmd": cmd}
             if args:
-                start_msg["args"] = args
+                start_msg: dict = {"type": "start", "cmd": cmd, "args": args}
+            else:
+                start_msg = {"type": "start", "cmd": "/bin/sh", "args": ["-c", cmd]}
             await ws.send_text(json.dumps(start_msg))
             try:
                 while True:

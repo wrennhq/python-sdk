@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 import httpx_ws
 
+from wrenn._git import Git
 from wrenn.client import WrennClient
 from wrenn.commands import Commands
 from wrenn.files import Files
@@ -111,6 +112,7 @@ class Capsule:
 
         self.commands = Commands(self._id, self._client.http)
         self.files = Files(self._id, self._client.http)
+        self.git = Git(self._id, self._client.http)
 
         if wait:
             self.wait_ready()
