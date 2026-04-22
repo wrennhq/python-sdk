@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 import respx
 from httpx import Response
@@ -942,3 +944,156 @@ class TestAsyncGit:
         git = _make_async_git()
         branches = await git.branches(cwd="/repo")
         assert len(branches) == 2
+
+
+# ════════════════════════════════��═════════════════════════════════
+# Command payload tests — verify /bin/sh -c wrapping
+# ════════════════════════════���══════════════════════���══════════════
+
+
+class TestCommandPayloadWrapping:
+    """Verify that Commands.run sends cmd=/bin/sh args=['-c', cmd_string]
+    so the server-side wrapper expands "${@}" into proper argv."""
+
+    @respx.mock
+    def test_simple_command(self):
+        route = respx.post(EXEC_URL).respond(200, json=_exec_response(
+            stdout="hello world\n"
+        ))
+        git = _make_git()
+        git.init("/repo")
+        body = json.loads(route.calls[0].request.content)
+        assert body["cmd"] == "/bin/sh"
+        assert body["args"] == ["-c", git_cmd_from_body(body)]
+        # args[1] should contain the actual git command
+        assert body["args"][0] == "-c"
+        assert "git" in body["args"][1]
+
+    @respx.mock
+    def test_command_with_pipes(self):
+        """Pipes and redirects work because /bin/sh interprets them."""
+        from wrenn.client import WrennClient
+        from wrenn.commands import Commands
+
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        commands = Commands(CAPSULE_ID, client.http)
+
+        route = respx.post(EXEC_URL).respond(200, json=_exec_response(
+            stdout="3\n"
+        ))
+        commands.run("cat /etc/passwd | wc -l")
+        body = json.loads(route.calls[0].request.content)
+        assert body["cmd"] == "/bin/sh"
+        assert body["args"] == ["-c", "cat /etc/passwd | wc -l"]
+
+    @respx.mock
+    def test_command_with_semicolons(self):
+        from wrenn.client import WrennClient
+        from wrenn.commands import Commands
+
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        commands = Commands(CAPSULE_ID, client.http)
+
+        route = respx.post(EXEC_URL).respond(200, json=_exec_response())
+        commands.run("cd /tmp; ls -la && echo done")
+        body = json.loads(route.calls[0].request.content)
+        assert body["cmd"] == "/bin/sh"
+        assert body["args"] == ["-c", "cd /tmp; ls -la && echo done"]
+
+    @respx.mock
+    def test_command_with_env_vars(self):
+        from wrenn.client import WrennClient
+        from wrenn.commands import Commands
+
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        commands = Commands(CAPSULE_ID, client.http)
+
+        route = respx.post(EXEC_URL).respond(200, json=_exec_response())
+        commands.run("FOO=bar echo $FOO")
+        body = json.loads(route.calls[0].request.content)
+        assert body["cmd"] == "/bin/sh"
+        assert body["args"] == ["-c", "FOO=bar echo $FOO"]
+
+    @respx.mock
+    def test_command_with_subshell(self):
+        from wrenn.client import WrennClient
+        from wrenn.commands import Commands
+
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        commands = Commands(CAPSULE_ID, client.http)
+
+        route = respx.post(EXEC_URL).respond(200, json=_exec_response())
+        commands.run("echo $(date +%s)")
+        body = json.loads(route.calls[0].request.content)
+        assert body["cmd"] == "/bin/sh"
+        assert body["args"] == ["-c", "echo $(date +%s)"]
+
+    @respx.mock
+    def test_command_with_quotes_and_spaces(self):
+        from wrenn.client import WrennClient
+        from wrenn.commands import Commands
+
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        commands = Commands(CAPSULE_ID, client.http)
+
+        route = respx.post(EXEC_URL).respond(200, json=_exec_response())
+        commands.run("""echo "hello 'world'" | grep -o "'[^']*'" """)
+        body = json.loads(route.calls[0].request.content)
+        assert body["cmd"] == "/bin/sh"
+        assert body["args"][0] == "-c"
+        # The command string is passed verbatim — shell interprets it
+        assert "hello 'world'" in body["args"][1]
+
+    @respx.mock
+    def test_heredoc_style_command(self):
+        from wrenn.client import WrennClient
+        from wrenn.commands import Commands
+
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        commands = Commands(CAPSULE_ID, client.http)
+
+        route = respx.post(EXEC_URL).respond(200, json=_exec_response())
+        commands.run("python3 -c 'import sys; print(sys.version)'")
+        body = json.loads(route.calls[0].request.content)
+        assert body["cmd"] == "/bin/sh"
+        assert body["args"] == ["-c", "python3 -c 'import sys; print(sys.version)'"]
+
+    @respx.mock
+    def test_git_shlex_joined_command(self):
+        """Git module uses shlex.join — verify it passes through correctly."""
+        route = respx.post(EXEC_URL).respond(200, json=_exec_response())
+        git = _make_git()
+        git.clone("https://github.com/user/repo.git", "/tmp/repo", depth=1)
+        body = json.loads(route.calls[0].request.content)
+        assert body["cmd"] == "/bin/sh"
+        assert body["args"][0] == "-c"
+        # shlex.join produces: git clone --depth 1 https://... /tmp/repo
+        shell_cmd = body["args"][1]
+        assert "git" in shell_cmd
+        assert "clone" in shell_cmd
+        assert "--depth" in shell_cmd
+        assert "https://github.com/user/repo.git" in shell_cmd
+
+    @respx.mock
+    def test_background_command_also_wrapped(self):
+        from wrenn.client import WrennClient
+        from wrenn.commands import Commands
+
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        commands = Commands(CAPSULE_ID, client.http)
+
+        route = respx.post(EXEC_URL).respond(200, json={
+            "pid": 42, "tag": "bg-1"
+        })
+        commands.run("tail -f /var/log/syslog", background=True)
+        body = json.loads(route.calls[0].request.content)
+        assert body["cmd"] == "/bin/sh"
+        assert body["args"] == ["-c", "tail -f /var/log/syslog"]
+        assert body["background"] is True
+
+
+def git_cmd_from_body(body: dict) -> str:
+    """Extract the shell command string from a wrapped payload."""
+    assert body["cmd"] == "/bin/sh"
+    assert body["args"][0] == "-c"
+    return body["args"][1]
