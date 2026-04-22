@@ -215,6 +215,73 @@ for chunk in capsule.files.download_stream("/data/large.bin"):
     process(chunk)
 ```
 
+### Git
+
+Git operations are accessed via `capsule.git`. All commands execute the real `git` binary inside the capsule:
+
+```python
+# Initialize a repo
+capsule.git.init("/app", initial_branch="main")
+
+# Configure user
+capsule.git.configure_user("Alice", "alice@example.com", cwd="/app")
+
+# Stage and commit
+capsule.git.add(all=True, cwd="/app")
+capsule.git.commit("initial commit", cwd="/app")
+
+# Check status
+status = capsule.git.status(cwd="/app")
+print(status.branch)    # "main"
+print(status.is_clean)  # True
+for f in status.files:
+    print(f.path, f.index_status, f.work_tree_status)
+
+# Branches
+branches = capsule.git.branches(cwd="/app")
+capsule.git.create_branch("feature", cwd="/app")
+capsule.git.checkout_branch("main", cwd="/app")
+capsule.git.delete_branch("feature", cwd="/app")
+```
+
+#### Clone with Authentication
+
+```python
+# Clone a private repo (credentials are stripped from remote URL after clone)
+capsule.git.clone(
+    "https://github.com/org/repo.git",
+    username="user",
+    password="ghp_token",
+    cwd="/app",
+)
+
+# Push/pull with inline credentials (temporarily embedded, then restored)
+capsule.git.push("origin", "main", username="user", password="ghp_token", cwd="/app")
+capsule.git.pull("origin", "main", username="user", password="ghp_token", cwd="/app")
+```
+
+#### Configuration and Remotes
+
+```python
+capsule.git.set_config("core.autocrlf", "false", cwd="/app")
+value = capsule.git.get_config("user.name", cwd="/app")  # str | None
+
+capsule.git.remote_add("upstream", "https://github.com/org/repo.git", cwd="/app")
+url = capsule.git.remote_get("origin", cwd="/app")  # str | None
+```
+
+Git errors raise `GitCommandError` (or `GitAuthError` for authentication failures), both inheriting from `GitError`:
+
+```python
+from wrenn import GitCommandError, GitAuthError
+
+try:
+    capsule.git.push("origin", "main", username="user", password="bad", cwd="/app")
+except GitAuthError as e:
+    print(e.stderr)
+    print(e.exit_code)
+```
+
 ### Interactive Terminal (PTY)
 
 ```python
@@ -533,13 +600,23 @@ make test-integration
 
 ### Running Integration Tests
 
-Integration tests require a live Wrenn server:
+Integration tests require a live Wrenn server. Set credentials via environment or a `.env` file at the project root:
 
 ```bash
+# Option 1: environment variable
 export WRENN_API_KEY="wrn_..."
-export WRENN_BASE_URL="http://localhost:8080"  # optional
+
+# Option 2: .env file
+echo 'WRENN_API_KEY=wrn_...' > .env
+```
+
+Then run:
+
+```bash
 make test-integration
 ```
+
+Tests are automatically skipped when `WRENN_API_KEY` is not available.
 
 ## License
 
