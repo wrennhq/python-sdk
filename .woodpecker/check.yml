@@ -1,0 +1,21 @@
+when:
+  event: push
+  branch:
+    - main
+    - dev
+
+steps:
+  unit-tests:
+    image: ghcr.io/astral-sh/uv:python3.13-bookworm
+    commands:
+      - uv sync --dev
+      - uv run pytest -m "not integration" -v
+
+  integration-tests:
+    image: ghcr.io/astral-sh/uv:python3.13-bookworm
+    environment:
+      WRENN_API_KEY:
+        from_secret: WRENN_API_KEY
+    commands:
+      - uv sync --dev
+      - uv run pytest -m integration -v
