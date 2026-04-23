@@ -14,7 +14,6 @@ from wrenn.capsule import _build_proxy_url
 from wrenn.code_interpreter.models import (
     Execution,
     ExecutionError,
-    Logs,
     Result,
 )
 
@@ -271,9 +270,7 @@ class Capsule(BaseCapsule):
                     result = Result.from_bundle(bundle, is_main_result=is_main)
                     execution.results.append(result)
                     if is_main:
-                        execution.execution_count = content.get(
-                            "execution_count"
-                        )
+                        execution.execution_count = content.get("execution_count")
                     if on_result is not None:
                         on_result(result)
                 elif msg_type == "error":
@@ -285,10 +282,7 @@ class Capsule(BaseCapsule):
                     execution.error = err
                     if on_error is not None:
                         on_error(err)
-                elif (
-                    msg_type == "status"
-                    and content.get("execution_state") == "idle"
-                ):
+                elif msg_type == "status" and content.get("execution_state") == "idle":
                     break
 
         return execution

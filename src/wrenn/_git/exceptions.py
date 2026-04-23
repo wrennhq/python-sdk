@@ -13,9 +13,7 @@ class GitError(Exception):
         exit_code (int): Process exit code.
     """
 
-    def __init__(
-        self, message: str, *, stderr: str = "", exit_code: int = -1
-    ) -> None:
+    def __init__(self, message: str, *, stderr: str = "", exit_code: int = -1) -> None:
         self.message = message
         self.stderr = stderr
         self.exit_code = exit_code

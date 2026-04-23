@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 # ── Data types ─────────────────────────────────────────────────────
 
+
 @dataclass
 class FileStatus:
     """A single entry from ``git status --porcelain=v1``.
@@ -95,6 +96,7 @@ class GitBranch:
 
 
 # ── Argument builders ──────────────────────────────────────────────
+
 
 def build_clone(
     url: str,
@@ -356,6 +358,7 @@ def build_has_upstream() -> list[str]:
 
 # ── Parsers ────────────────────────────────────────────────────────
 
+
 def parse_status(stdout: str) -> GitStatus:
     """Parse ``git status --porcelain=v1 --branch`` output.
 
@@ -377,11 +380,13 @@ def parse_status(stdout: str) -> GitStatus:
 
     for line in lines[1:]:
         if line.startswith("?? "):
-            status.files.append(FileStatus(
-                path=line[3:],
-                index_status="?",
-                work_tree_status="?",
-            ))
+            status.files.append(
+                FileStatus(
+                    path=line[3:],
+                    index_status="?",
+                    work_tree_status="?",
+                )
+            )
             continue
 
         if len(line) < 4:
@@ -394,12 +399,14 @@ def parse_status(stdout: str) -> GitStatus:
         if " -> " in path:
             renamed_from, path = path.split(" -> ", 1)
 
-        status.files.append(FileStatus(
-            path=path,
-            index_status=idx,
-            work_tree_status=wt,
-            renamed_from=renamed_from,
-        ))
+        status.files.append(
+            FileStatus(
+                path=path,
+                index_status=idx,
+                work_tree_status=wt,
+                renamed_from=renamed_from,
+            )
+        )
 
     return status
 
@@ -427,6 +434,7 @@ def parse_branches(stdout: str) -> list[GitBranch]:
 
 # ── Internal helpers ───────────────────────────────────────────────
 
+
 def _resolve_scope_flag(scope: str) -> str:
     """Convert a scope name to a git config flag."""
     scope = scope.strip().lower()
@@ -436,16 +444,14 @@ def _resolve_scope_flag(scope: str) -> str:
         return "--global"
     if scope == "system":
         return "--system"
-    raise ValueError(
-        "Git config scope must be one of: local, global, system."
-    )
+    raise ValueError("Git config scope must be one of: local, global, system.")
 
 
 def _parse_branch_line(info: str, status: GitStatus) -> None:
     """Parse the ``## branch...upstream [ahead N, behind M]`` header."""
     ahead_start = info.find(" [")
     branch_part = info if ahead_start == -1 else info[:ahead_start]
-    ahead_part = None if ahead_start == -1 else info[ahead_start + 2:-1]
+    ahead_part = None if ahead_start == -1 else info[ahead_start + 2 : -1]
 
     if branch_part.startswith("HEAD (detached at "):
         status.detached = True
@@ -457,10 +463,8 @@ def _parse_branch_line(info: str, status: GitStatus) -> None:
         status.branch = local or None
         status.upstream = remote or None
     else:
-        name = (
-            branch_part
-            .replace("No commits yet on ", "")
-            .replace("Initial commit on ", "")
+        name = branch_part.replace("No commits yet on ", "").replace(
+            "Initial commit on ", ""
         )
         status.branch = name or None
 

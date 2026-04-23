@@ -4,14 +4,12 @@ import json
 
 import pytest
 import respx
-from httpx import Response
 
 from wrenn._git import (
     AsyncGit,
     FileStatus,
     Git,
     GitAuthError,
-    GitBranch,
     GitCommandError,
     GitError,
     GitStatus,
@@ -120,9 +118,13 @@ class TestBuildClone:
             depth=5,
         )
         assert args == [
-            "git", "clone",
-            "--branch", "dev", "--single-branch",
-            "--depth", "5",
+            "git",
+            "clone",
+            "--branch",
+            "dev",
+            "--single-branch",
+            "--depth",
+            "5",
             "https://github.com/user/repo.git",
             "/tmp/repo",
         ]
@@ -212,7 +214,9 @@ class TestBuildStatus:
 class TestBuildBranches:
     def test_args(self):
         assert build_branches() == [
-            "git", "branch", "--format=%(refname:short)\t%(HEAD)"
+            "git",
+            "branch",
+            "--format=%(refname:short)\t%(HEAD)",
         ]
 
 
@@ -237,7 +241,13 @@ class TestBuildBranchOps:
 class TestBuildRemote:
     def test_add(self):
         args = build_remote_add("origin", "https://example.com/repo.git")
-        assert args == ["git", "remote", "add", "origin", "https://example.com/repo.git"]
+        assert args == [
+            "git",
+            "remote",
+            "add",
+            "origin",
+            "https://example.com/repo.git",
+        ]
 
     def test_add_with_fetch(self):
         args = build_remote_add("origin", "https://example.com/repo.git", fetch=True)
@@ -248,7 +258,13 @@ class TestBuildRemote:
 
     def test_set_url(self):
         args = build_remote_set_url("origin", "https://new.url/repo.git")
-        assert args == ["git", "remote", "set-url", "origin", "https://new.url/repo.git"]
+        assert args == [
+            "git",
+            "remote",
+            "set-url",
+            "origin",
+            "https://new.url/repo.git",
+        ]
 
 
 class TestBuildReset:
@@ -445,21 +461,27 @@ class TestStripCredentials:
 
 
 class TestIsAuthError:
-    @pytest.mark.parametrize("msg", [
-        "fatal: Authentication failed for 'https://...'",
-        "fatal: could not read Username",
-        "remote: Invalid username or password",
-        "fatal: terminal prompts disabled",
-        "Permission denied (publickey)",
-    ])
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "fatal: Authentication failed for 'https://...'",
+            "fatal: could not read Username",
+            "remote: Invalid username or password",
+            "fatal: terminal prompts disabled",
+            "Permission denied (publickey)",
+        ],
+    )
     def test_auth_patterns(self, msg):
         assert is_auth_error(msg) is True
 
-    @pytest.mark.parametrize("msg", [
-        "fatal: repository 'https://...' not found",
-        "error: pathspec 'foo' did not match any file(s)",
-        "",
-    ])
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "fatal: repository 'https://...' not found",
+            "error: pathspec 'foo' did not match any file(s)",
+            "",
+        ],
+    )
     def test_non_auth_patterns(self, msg):
         assert is_auth_error(msg) is False
 
@@ -495,7 +517,9 @@ class TestCheckResult:
 
     def test_auth_failure(self):
         result = CommandResult(
-            stdout="", stderr="fatal: Authentication failed for 'https://...'", exit_code=128
+            stdout="",
+            stderr="fatal: Authentication failed for 'https://...'",
+            exit_code=128,
         )
         with pytest.raises(GitAuthError) as exc_info:
             _check_result(result, op="clone")
@@ -570,21 +594,27 @@ class TestGitStatus:
         assert s.is_clean is True
 
     def test_has_staged(self):
-        s = GitStatus(files=[
-            FileStatus(path="a.py", index_status="M", work_tree_status=" "),
-        ])
+        s = GitStatus(
+            files=[
+                FileStatus(path="a.py", index_status="M", work_tree_status=" "),
+            ]
+        )
         assert s.has_staged is True
 
     def test_has_untracked(self):
-        s = GitStatus(files=[
-            FileStatus(path="a.py", index_status="?", work_tree_status="?"),
-        ])
+        s = GitStatus(
+            files=[
+                FileStatus(path="a.py", index_status="?", work_tree_status="?"),
+            ]
+        )
         assert s.has_untracked is True
 
     def test_has_conflicts(self):
-        s = GitStatus(files=[
-            FileStatus(path="a.py", index_status="U", work_tree_status="U"),
-        ])
+        s = GitStatus(
+            files=[
+                FileStatus(path="a.py", index_status="U", work_tree_status="U"),
+            ]
+        )
         assert s.has_conflicts is True
 
 
@@ -596,18 +626,22 @@ class TestGitStatus:
 class TestGitInit:
     @respx.mock
     def test_init(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="Initialized empty Git repository in /repo/.git/\n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200,
+            json=_exec_response(
+                stdout="Initialized empty Git repository in /repo/.git/\n"
+            ),
+        )
         git = _make_git()
         result = git.init("/repo")
         assert result.exit_code == 0
 
     @respx.mock
     def test_init_failure(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stderr="fatal: cannot mkdir /readonly", exit_code=128
-        ))
+        respx.post(EXEC_URL).respond(
+            200,
+            json=_exec_response(stderr="fatal: cannot mkdir /readonly", exit_code=128),
+        )
         git = _make_git()
         with pytest.raises(GitCommandError):
             git.init("/readonly")
@@ -616,9 +650,9 @@ class TestGitInit:
 class TestGitClone:
     @respx.mock
     def test_clone_basic(self):
-        route = respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stderr="Cloning into 'repo'...\n"
-        ))
+        route = respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stderr="Cloning into 'repo'...\n")
+        )
         git = _make_git()
         result = git.clone("https://github.com/user/repo.git")
         assert result.exit_code == 0
@@ -627,10 +661,13 @@ class TestGitClone:
 
     @respx.mock
     def test_clone_auth_failure(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stderr="fatal: Authentication failed for 'https://...'",
-            exit_code=128,
-        ))
+        respx.post(EXEC_URL).respond(
+            200,
+            json=_exec_response(
+                stderr="fatal: Authentication failed for 'https://...'",
+                exit_code=128,
+            ),
+        )
         git = _make_git()
         with pytest.raises(GitAuthError):
             git.clone("https://github.com/private/repo.git")
@@ -667,20 +704,23 @@ class TestGitAdd:
 class TestGitCommit:
     @respx.mock
     def test_commit(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="[main abc1234] initial commit\n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stdout="[main abc1234] initial commit\n")
+        )
         git = _make_git()
         result = git.commit("initial commit", cwd="/repo")
         assert result.exit_code == 0
 
     @respx.mock
     def test_commit_nothing_to_commit(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="nothing to commit, working tree clean\n",
-            stderr="",
-            exit_code=1,
-        ))
+        respx.post(EXEC_URL).respond(
+            200,
+            json=_exec_response(
+                stdout="nothing to commit, working tree clean\n",
+                stderr="",
+                exit_code=1,
+            ),
+        )
         git = _make_git()
         with pytest.raises(GitCommandError):
             git.commit("empty", cwd="/repo")
@@ -702,12 +742,15 @@ class TestGitPushPull:
         assert result.exit_code == 0
 
 
-class TestGitStatus:
+class TestGitStatusCommand:
     @respx.mock
     def test_status(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="## main...origin/main [ahead 1]\n M file.py\n?? new.txt\n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200,
+            json=_exec_response(
+                stdout="## main...origin/main [ahead 1]\n M file.py\n?? new.txt\n"
+            ),
+        )
         git = _make_git()
         status = git.status(cwd="/repo")
         assert isinstance(status, GitStatus)
@@ -719,9 +762,9 @@ class TestGitStatus:
 class TestGitBranches:
     @respx.mock
     def test_branches(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="main\t*\ndev\t \n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stdout="main\t*\ndev\t \n")
+        )
         git = _make_git()
         branches = git.branches(cwd="/repo")
         assert len(branches) == 2
@@ -730,27 +773,27 @@ class TestGitBranches:
 
     @respx.mock
     def test_create_branch(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stderr="Switched to a new branch 'feat'\n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stderr="Switched to a new branch 'feat'\n")
+        )
         git = _make_git()
         result = git.create_branch("feat", cwd="/repo")
         assert result.exit_code == 0
 
     @respx.mock
     def test_checkout_branch(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stderr="Switched to branch 'main'\n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stderr="Switched to branch 'main'\n")
+        )
         git = _make_git()
         result = git.checkout_branch("main", cwd="/repo")
         assert result.exit_code == 0
 
     @respx.mock
     def test_delete_branch(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="Deleted branch old (was abc1234).\n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stdout="Deleted branch old (was abc1234).\n")
+        )
         git = _make_git()
         result = git.delete_branch("old", cwd="/repo")
         assert result.exit_code == 0
@@ -766,18 +809,18 @@ class TestGitRemote:
 
     @respx.mock
     def test_remote_get(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="https://example.com/repo.git\n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stdout="https://example.com/repo.git\n")
+        )
         git = _make_git()
         url = git.remote_get("origin", cwd="/repo")
         assert url == "https://example.com/repo.git"
 
     @respx.mock
     def test_remote_get_not_found(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stderr="fatal: No such remote 'nope'", exit_code=2
-        ))
+        respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stderr="fatal: No such remote 'nope'", exit_code=2)
+        )
         git = _make_git()
         url = git.remote_get("nope", cwd="/repo")
         assert url is None
@@ -816,9 +859,7 @@ class TestGitConfig:
 
     @respx.mock
     def test_get_config_not_set(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stderr="", exit_code=1
-        ))
+        respx.post(EXEC_URL).respond(200, json=_exec_response(stderr="", exit_code=1))
         git = _make_git()
         val = git.get_config("nonexistent.key", scope="global")
         assert val is None
@@ -897,9 +938,9 @@ class TestAsyncGit:
     @pytest.mark.asyncio
     @respx.mock
     async def test_async_init(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="Initialized empty Git repository\n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stdout="Initialized empty Git repository\n")
+        )
         git = _make_async_git()
         result = await git.init("/repo")
         assert result.exit_code == 0
@@ -907,9 +948,9 @@ class TestAsyncGit:
     @pytest.mark.asyncio
     @respx.mock
     async def test_async_status(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="## main\n M file.py\n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stdout="## main\n M file.py\n")
+        )
         git = _make_async_git()
         status = await git.status(cwd="/repo")
         assert isinstance(status, GitStatus)
@@ -918,9 +959,10 @@ class TestAsyncGit:
     @pytest.mark.asyncio
     @respx.mock
     async def test_async_clone_auth_error(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stderr="fatal: Authentication failed", exit_code=128
-        ))
+        respx.post(EXEC_URL).respond(
+            200,
+            json=_exec_response(stderr="fatal: Authentication failed", exit_code=128),
+        )
         git = _make_async_git()
         with pytest.raises(GitAuthError):
             await git.clone("https://github.com/private/repo.git")
@@ -928,9 +970,9 @@ class TestAsyncGit:
     @pytest.mark.asyncio
     @respx.mock
     async def test_async_commit(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="[main abc1234] test\n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stdout="[main abc1234] test\n")
+        )
         git = _make_async_git()
         result = await git.commit("test", cwd="/repo")
         assert result.exit_code == 0
@@ -938,9 +980,9 @@ class TestAsyncGit:
     @pytest.mark.asyncio
     @respx.mock
     async def test_async_branches(self):
-        respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="main\t*\ndev\t \n"
-        ))
+        respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stdout="main\t*\ndev\t \n")
+        )
         git = _make_async_git()
         branches = await git.branches(cwd="/repo")
         assert len(branches) == 2
@@ -957,9 +999,9 @@ class TestCommandPayloadWrapping:
 
     @respx.mock
     def test_simple_command(self):
-        route = respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="hello world\n"
-        ))
+        route = respx.post(EXEC_URL).respond(
+            200, json=_exec_response(stdout="hello world\n")
+        )
         git = _make_git()
         git.init("/repo")
         body = json.loads(route.calls[0].request.content)
@@ -978,9 +1020,7 @@ class TestCommandPayloadWrapping:
         client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
         commands = Commands(CAPSULE_ID, client.http)
 
-        route = respx.post(EXEC_URL).respond(200, json=_exec_response(
-            stdout="3\n"
-        ))
+        route = respx.post(EXEC_URL).respond(200, json=_exec_response(stdout="3\n"))
         commands.run("cat /etc/passwd | wc -l")
         body = json.loads(route.calls[0].request.content)
         assert body["cmd"] == "/bin/sh"
@@ -1082,9 +1122,7 @@ class TestCommandPayloadWrapping:
         client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
         commands = Commands(CAPSULE_ID, client.http)
 
-        route = respx.post(EXEC_URL).respond(200, json={
-            "pid": 42, "tag": "bg-1"
-        })
+        route = respx.post(EXEC_URL).respond(200, json={"pid": 42, "tag": "bg-1"})
         commands.run("tail -f /var/log/syslog", background=True)
         body = json.loads(route.calls[0].request.content)
         assert body["cmd"] == "/bin/sh"

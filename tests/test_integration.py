@@ -179,9 +179,7 @@ class TestCommands:
         assert result.exit_code == 42
 
     def test_run_with_envs(self):
-        result = self.capsule.commands.run(
-            "export MY_VAR=test_value && echo $MY_VAR"
-        )
+        result = self.capsule.commands.run("export MY_VAR=test_value && echo $MY_VAR")
         assert "test_value" in result.stdout
 
     def test_run_with_cwd(self):
@@ -195,9 +193,7 @@ class TestCommands:
         assert len(lines) == 3
 
     def test_run_background(self):
-        handle = self.capsule.commands.run(
-            "sleep 30", background=True, tag="bg-test"
-        )
+        handle = self.capsule.commands.run("sleep 30", background=True, tag="bg-test")
         assert isinstance(handle, CommandHandle)
         assert handle.pid > 0
         assert handle.tag == "bg-test"
@@ -206,9 +202,7 @@ class TestCommands:
         self.capsule.commands.kill(handle.pid)
 
     def test_list_processes(self):
-        handle = self.capsule.commands.run(
-            "sleep 30", background=True, tag="list-test"
-        )
+        handle = self.capsule.commands.run("sleep 30", background=True, tag="list-test")
         try:
             time.sleep(0.5)
             processes = self.capsule.commands.list()
@@ -222,9 +216,7 @@ class TestCommands:
             self.capsule.commands.kill(handle.pid)
 
     def test_kill_process(self):
-        handle = self.capsule.commands.run(
-            "sleep 30", background=True
-        )
+        handle = self.capsule.commands.run("sleep 30", background=True)
         self.capsule.commands.kill(handle.pid)
         time.sleep(0.5)
 

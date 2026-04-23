@@ -211,9 +211,7 @@ class Git:
             if sanitized != clone_url:
                 repo_dir = dest or _derive_repo_dir(url)
                 if repo_dir:
-                    repo_cwd = (
-                        posixpath.join(cwd, repo_dir) if cwd else repo_dir
-                    )
+                    repo_cwd = posixpath.join(cwd, repo_dir) if cwd else repo_dir
                     strip_result = self._run(
                         build_remote_set_url("origin", sanitized),
                         cwd=repo_cwd,
@@ -482,9 +480,7 @@ class Git:
         Raises:
             GitCommandError: If the command failed.
         """
-        result = self._run(
-            build_branches(), cwd=cwd, envs=envs, timeout=timeout
-        )
+        result = self._run(build_branches(), cwd=cwd, envs=envs, timeout=timeout)
         _check_result(result, op="branches")
         return parse_branches(result.stdout)
 
@@ -697,9 +693,7 @@ class Git:
         Raises:
             GitCommandError: If the command failed.
         """
-        argv = build_restore(
-            paths, staged=staged, worktree=worktree, source=source
-        )
+        argv = build_restore(paths, staged=staged, worktree=worktree, source=source)
         result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
         _check_result(result, op="restore")
         return result
@@ -798,8 +792,12 @@ class Git:
         """
         if not name or not email:
             raise ValueError("Both name and email are required.")
-        self.set_config("user.name", name, scope=scope, cwd=cwd, envs=envs, timeout=timeout)
-        self.set_config("user.email", email, scope=scope, cwd=cwd, envs=envs, timeout=timeout)
+        self.set_config(
+            "user.name", name, scope=scope, cwd=cwd, envs=envs, timeout=timeout
+        )
+        self.set_config(
+            "user.email", email, scope=scope, cwd=cwd, envs=envs, timeout=timeout
+        )
 
     def dangerously_authenticate(
         self,
@@ -836,12 +834,14 @@ class Git:
             GitCommandError: If a command failed.
         """
         if not username or not password:
-            raise ValueError(
-                "Both username and password are required."
-            )
+            raise ValueError("Both username and password are required.")
         self.set_config(
-            "credential.helper", "store",
-            scope="global", cwd=cwd, envs=envs, timeout=timeout,
+            "credential.helper",
+            "store",
+            scope="global",
+            cwd=cwd,
+            envs=envs,
+            timeout=timeout,
         )
         cmd = build_credential_approve_cmd(
             username=username,
@@ -880,7 +880,9 @@ class Git:
         credential_url = embed_credentials(original_url, username, password)
         self._run(
             build_remote_set_url(remote, credential_url),
-            cwd=cwd, envs=envs, timeout=timeout,
+            cwd=cwd,
+            envs=envs,
+            timeout=timeout,
         )
 
         op_error: Exception | None = None
@@ -895,7 +897,9 @@ class Git:
         try:
             self._run(
                 build_remote_set_url(remote, original_url),
-                cwd=cwd, envs=envs, timeout=timeout,
+                cwd=cwd,
+                envs=envs,
+                timeout=timeout,
             )
         except Exception as err:
             restore_error = err
@@ -988,9 +992,7 @@ class AsyncGit:
             if sanitized != clone_url:
                 repo_dir = dest or _derive_repo_dir(url)
                 if repo_dir:
-                    repo_cwd = (
-                        posixpath.join(cwd, repo_dir) if cwd else repo_dir
-                    )
+                    repo_cwd = posixpath.join(cwd, repo_dir) if cwd else repo_dir
                     strip_result = await self._run(
                         build_remote_set_url("origin", sanitized),
                         cwd=repo_cwd,
@@ -1072,10 +1074,13 @@ class AsyncGit:
     ) -> CommandResult:
         """Push commits to a remote."""
         if username and password:
+
             async def _op() -> CommandResult:
                 return await self._run(
                     build_push(remote, branch, force=force, set_upstream=set_upstream),
-                    cwd=cwd, envs=envs, timeout=timeout,
+                    cwd=cwd,
+                    envs=envs,
+                    timeout=timeout,
                 )
 
             return await self._with_remote_credentials(
@@ -1109,10 +1114,13 @@ class AsyncGit:
     ) -> CommandResult:
         """Pull changes from a remote."""
         if username and password:
+
             async def _op() -> CommandResult:
                 return await self._run(
                     build_pull(remote, branch, rebase=rebase, ff_only=ff_only),
-                    cwd=cwd, envs=envs, timeout=timeout,
+                    cwd=cwd,
+                    envs=envs,
+                    timeout=timeout,
                 )
 
             return await self._with_remote_credentials(
@@ -1141,9 +1149,7 @@ class AsyncGit:
         timeout: int | None = 30,
     ) -> GitStatus:
         """Get repository status."""
-        result = await self._run(
-            build_status(), cwd=cwd, envs=envs, timeout=timeout
-        )
+        result = await self._run(build_status(), cwd=cwd, envs=envs, timeout=timeout)
         _check_result(result, op="status")
         return parse_status(result.stdout)
 
@@ -1155,9 +1161,7 @@ class AsyncGit:
         timeout: int | None = 30,
     ) -> list[GitBranch]:
         """List local branches."""
-        result = await self._run(
-            build_branches(), cwd=cwd, envs=envs, timeout=timeout
-        )
+        result = await self._run(build_branches(), cwd=cwd, envs=envs, timeout=timeout)
         _check_result(result, op="branches")
         return parse_branches(result.stdout)
 
@@ -1270,9 +1274,7 @@ class AsyncGit:
         timeout: int | None = 30,
     ) -> CommandResult:
         """Restore working-tree files or unstage changes."""
-        argv = build_restore(
-            paths, staged=staged, worktree=worktree, source=source
-        )
+        argv = build_restore(paths, staged=staged, worktree=worktree, source=source)
         result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
         _check_result(result, op="restore")
         return result
@@ -1325,8 +1327,12 @@ class AsyncGit:
         """Configure git user name and email."""
         if not name or not email:
             raise ValueError("Both name and email are required.")
-        await self.set_config("user.name", name, scope=scope, cwd=cwd, envs=envs, timeout=timeout)
-        await self.set_config("user.email", email, scope=scope, cwd=cwd, envs=envs, timeout=timeout)
+        await self.set_config(
+            "user.name", name, scope=scope, cwd=cwd, envs=envs, timeout=timeout
+        )
+        await self.set_config(
+            "user.email", email, scope=scope, cwd=cwd, envs=envs, timeout=timeout
+        )
 
     async def dangerously_authenticate(
         self,
@@ -1348,12 +1354,14 @@ class AsyncGit:
             parameters instead.
         """
         if not username or not password:
-            raise ValueError(
-                "Both username and password are required."
-            )
+            raise ValueError("Both username and password are required.")
         await self.set_config(
-            "credential.helper", "store",
-            scope="global", cwd=cwd, envs=envs, timeout=timeout,
+            "credential.helper",
+            "store",
+            scope="global",
+            cwd=cwd,
+            envs=envs,
+            timeout=timeout,
         )
         cmd = build_credential_approve_cmd(
             username=username,
@@ -1394,7 +1402,9 @@ class AsyncGit:
         credential_url = embed_credentials(original_url, username, password)
         await self._run(
             build_remote_set_url(remote, credential_url),
-            cwd=cwd, envs=envs, timeout=timeout,
+            cwd=cwd,
+            envs=envs,
+            timeout=timeout,
         )
 
         op_error: Exception | None = None
@@ -1409,7 +1419,9 @@ class AsyncGit:
         try:
             await self._run(
                 build_remote_set_url(remote, original_url),
-                cwd=cwd, envs=envs, timeout=timeout,
+                cwd=cwd,
+                envs=envs,
+                timeout=timeout,
             )
         except Exception as err:
             restore_error = err

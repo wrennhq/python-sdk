@@ -17,7 +17,6 @@ from wrenn.code_interpreter.capsule import DEFAULT_TEMPLATE
 from wrenn.code_interpreter.models import (
     Execution,
     ExecutionError,
-    Logs,
     Result,
 )
 
@@ -215,9 +214,7 @@ class AsyncCapsule(BaseAsyncCapsule):
                 if time_left <= 0:
                     break
                 try:
-                    data = await asyncio.wait_for(
-                        ws.receive_json(), timeout=time_left
-                    )
+                    data = await asyncio.wait_for(ws.receive_json(), timeout=time_left)
                 except (asyncio.TimeoutError, Exception):
                     break
                 if not data:
@@ -247,9 +244,7 @@ class AsyncCapsule(BaseAsyncCapsule):
                     result = Result.from_bundle(bundle, is_main_result=is_main)
                     execution.results.append(result)
                     if is_main:
-                        execution.execution_count = content.get(
-                            "execution_count"
-                        )
+                        execution.execution_count = content.get("execution_count")
                     if on_result is not None:
                         on_result(result)
                 elif msg_type == "error":
@@ -261,10 +256,7 @@ class AsyncCapsule(BaseAsyncCapsule):
                     execution.error = err
                     if on_error is not None:
                         on_error(err)
-                elif (
-                    msg_type == "status"
-                    and content.get("execution_state") == "idle"
-                ):
+                elif msg_type == "status" and content.get("execution_state") == "idle":
                     break
 
         return execution

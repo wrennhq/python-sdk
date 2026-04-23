@@ -241,13 +241,9 @@ class AsyncCapsule:
                 self._info = info
                 return
             if info.status in (Status.error, Status.stopped, Status.paused):
-                raise RuntimeError(
-                    f"Capsule entered {info.status} state while waiting"
-                )
+                raise RuntimeError(f"Capsule entered {info.status} state while waiting")
             await asyncio.sleep(interval)
-        raise TimeoutError(
-            f"Capsule {self._id} did not become ready within {timeout}s"
-        )
+        raise TimeoutError(f"Capsule {self._id} did not become ready within {timeout}s")
 
     async def is_running(self) -> bool:
         """Check whether the capsule is currently running.

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 import respx
 
 from wrenn.capsule import Capsule, _build_proxy_url
@@ -95,7 +94,9 @@ class TestCapsuleStaticMethods:
         respx.get(f"{BASE}/v1/capsules/cl-1").respond(
             200, json={"id": "cl-1", "status": "running"}
         )
-        info = Capsule._static_get_info("cl-1", api_key="wrn_test1234567890abcdef12345678")
+        info = Capsule._static_get_info(
+            "cl-1", api_key="wrn_test1234567890abcdef12345678"
+        )
         assert info.id == "cl-1"
 
 
@@ -179,7 +180,6 @@ class TestExecutionModels:
 
 class TestDeprecationWarnings:
     def test_import_sandbox_from_wrenn_warns(self):
-        import importlib
         import sys
         import warnings
 

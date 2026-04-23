@@ -305,9 +305,7 @@ class TestPtySessionIteration:
         ws = MagicMock()
         messages = [
             json.dumps({"type": "started", "tag": "pty-abc12345", "pid": 1}),
-            json.dumps(
-                {"type": "output", "data": base64.b64encode(b"hello").decode()}
-            ),
+            json.dumps({"type": "output", "data": base64.b64encode(b"hello").decode()}),
             json.dumps({"type": "exit", "exit_code": 0}),
         ]
         ws.receive_text.side_effect = messages
@@ -455,9 +453,7 @@ class TestAsyncPtySession:
         ws = AsyncMock()
         messages = [
             json.dumps({"type": "started", "tag": "pty-xyz", "pid": 5}),
-            json.dumps(
-                {"type": "output", "data": base64.b64encode(b"hi").decode()}
-            ),
+            json.dumps({"type": "output", "data": base64.b64encode(b"hi").decode()}),
             json.dumps({"type": "exit", "exit_code": 0}),
         ]
         ws.receive_text.side_effect = messages

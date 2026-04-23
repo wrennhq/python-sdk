@@ -24,7 +24,9 @@ def _read_env_file() -> dict[str, str]:
     return result
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
     env_vars = _read_env_file()
     has_key = bool(os.environ.get("WRENN_API_KEY") or env_vars.get("WRENN_API_KEY"))
     if has_key:

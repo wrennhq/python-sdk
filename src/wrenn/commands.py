@@ -197,9 +197,7 @@ class Commands:
         if tag is not None:
             payload["tag"] = tag
 
-        resp = self._http.post(
-            f"/v1/capsules/{self._capsule_id}/exec", json=payload
-        )
+        resp = self._http.post(f"/v1/capsules/{self._capsule_id}/exec", json=payload)
         data = handle_response(resp)
 
         if background:
@@ -238,9 +236,7 @@ class Commands:
         Raises:
             WrennNotFoundError: If no process with the given PID exists.
         """
-        resp = self._http.delete(
-            f"/v1/capsules/{self._capsule_id}/processes/{pid}"
-        )
+        resp = self._http.delete(f"/v1/capsules/{self._capsule_id}/processes/{pid}")
         handle_response(resp)
 
     def connect(self, pid: int) -> Iterator[StreamEvent]:
@@ -267,9 +263,7 @@ class Commands:
                 except httpx_ws.WebSocketDisconnect:
                     break
 
-    def stream(
-        self, cmd: str, args: list[str] | None = None
-    ) -> Iterator[StreamEvent]:
+    def stream(self, cmd: str, args: list[str] | None = None) -> Iterator[StreamEvent]:
         """Execute a command via WebSocket, streaming output as events.
 
         Args:
@@ -400,9 +394,7 @@ class AsyncCommands:
             list[ProcessInfo]: Running processes with their PID, tag, and
             command information.
         """
-        resp = await self._http.get(
-            f"/v1/capsules/{self._capsule_id}/processes"
-        )
+        resp = await self._http.get(f"/v1/capsules/{self._capsule_id}/processes")
         data = handle_response(resp)
         return [
             ProcessInfo(

@@ -246,9 +246,7 @@ class TestAsyncClient:
     @respx.mock
     async def test_async_capsules_list(self, async_client):
         async with async_client:
-            respx.get(f"{BASE}/v1/capsules").respond(
-                200, json=[{"id": "sb-1"}]
-            )
+            respx.get(f"{BASE}/v1/capsules").respond(200, json=[{"id": "sb-1"}])
             boxes = await async_client.capsules.list()
             assert len(boxes) == 1
 

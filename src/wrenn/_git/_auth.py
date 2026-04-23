@@ -20,9 +20,7 @@ def embed_credentials(url: str, username: str, password: str) -> str:
     """
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        raise ValueError(
-            "Only http(s) URLs support embedded credentials."
-        )
+        raise ValueError("Only http(s) URLs support embedded credentials.")
     netloc = f"{username}:{password}@{parsed.hostname}"
     if parsed.port:
         netloc = f"{netloc}:{parsed.port}"
@@ -93,12 +91,14 @@ def build_credential_approve_cmd(
         raise ValueError("Credentials must not contain newline characters.")
     target_host = host.strip() or "github.com"
     target_protocol = protocol.strip() or "https"
-    credential_input = "\n".join([
-        f"protocol={target_protocol}",
-        f"host={target_host}",
-        f"username={username}",
-        f"password={password}",
-        "",
-        "",
-    ])
+    credential_input = "\n".join(
+        [
+            f"protocol={target_protocol}",
+            f"host={target_host}",
+            f"username={username}",
+            f"password={password}",
+            "",
+            "",
+        ]
+    )
     return f"printf %s {shlex.quote(credential_input)} | git credential approve"
