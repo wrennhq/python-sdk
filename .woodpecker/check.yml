@@ -1,8 +1,7 @@
 when:
-  event: push
+  event: pull_request
   branch:
     - main
-    - dev
   path:
     - "src/**"
     - "tests/**"
