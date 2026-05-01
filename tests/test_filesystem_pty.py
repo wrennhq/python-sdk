@@ -23,7 +23,7 @@ def _make_capsule(cap_id: str = "cl-abc") -> Capsule:
     respx.post(f"{BASE}/v1/capsules").respond(
         201, json={"id": cap_id, "status": "running"}
     )
-    return Capsule(api_key="wrn_test1234567890abcdef12345678")
+    return Capsule(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
 
 
 class TestFilesRead:
