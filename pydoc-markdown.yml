@@ -1,0 +1,12 @@
+loaders:
+  - type: python
+    search_path: [src]
+
+processors:
+  - type: google  # Use Google-style docstring parser
+  - type: filter
+  - type: crossref
+
+renderer:
+  type: markdown
+  escape_html_in_docstring: false

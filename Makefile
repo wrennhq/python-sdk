@@ -36,3 +36,7 @@ test-integration:
 	uv run pytest tests/ -v -m "integration or not integration"
 
 check: lint test
+
+gen-docs:
+	mkdir -p docs
+	uv run pydoc-markdown > docs/reference.md

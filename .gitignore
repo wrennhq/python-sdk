@@ -175,3 +175,8 @@ cython_debug/
 .pypirc
 
 CODE_EXECUTION.md
+
+# AI
+.code-review-graph/
+.claude
+.mcp.json
