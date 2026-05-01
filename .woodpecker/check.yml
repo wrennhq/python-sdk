@@ -2,6 +2,7 @@ when:
   event: pull_request
   branch:
     - main
+    - dev
   path:
     - "src/**"
     - "tests/**"
