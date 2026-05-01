@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -102,6 +103,7 @@ class AsyncCapsule:
             memory_mb=memory_mb,
             timeout_sec=timeout,
         )
+        assert info.id is not None
         capsule = cls(
             _capsule_id=info.id,
             _client=client,
@@ -284,7 +286,7 @@ class AsyncCapsule:
     async def pty(
         self,
         cmd: str = "/bin/bash",
-        args: list[str] | None = None,
+        args: builtins.list[str] | None = None,
         cols: int = 80,
         rows: int = 24,
         envs: dict[str, str] | None = None,
@@ -316,7 +318,7 @@ class AsyncCapsule:
         """
         async with httpx_ws.aconnect_ws(
             f"/v1/capsules/{self._id}/pty", client=self._client.http
-        ) as ws:
+        ) as ws:  # type: httpx_ws.AsyncWebSocketSession
             session = AsyncPtySession(ws, self._id)
             await session._send_start(
                 cmd=cmd, args=args, cols=cols, rows=rows, envs=envs, cwd=cwd
@@ -335,7 +337,7 @@ class AsyncCapsule:
         """
         async with httpx_ws.aconnect_ws(
             f"/v1/capsules/{self._id}/pty", client=self._client.http
-        ) as ws:
+        ) as ws:  # type: httpx_ws.AsyncWebSocketSession
             session = AsyncPtySession(ws, self._id)
             await session._send_connect(tag)
             yield session

@@ -6,12 +6,15 @@ import httpx
 
 from wrenn._config import DEFAULT_BASE_URL, ENV_API_KEY, ENV_BASE_URL
 from wrenn.exceptions import handle_response
+
 from wrenn.models import (
     Template,
 )
 from wrenn.models import (
     Capsule as CapsuleModel,
 )
+
+_LONG_TIMEOUT = httpx.Timeout(60.0)
 
 
 def _resolve_api_key(api_key: str | None) -> str:
@@ -108,7 +111,7 @@ class CapsulesResource:
         Raises:
             WrennNotFoundError: If no capsule with the given ID exists.
         """
-        resp = self._http.post(f"/v1/capsules/{id}/pause")
+        resp = self._http.post(f"/v1/capsules/{id}/pause", timeout=_LONG_TIMEOUT)
         return CapsuleModel.model_validate(handle_response(resp))
 
     def resume(self, id: str) -> CapsuleModel:
@@ -224,7 +227,7 @@ class AsyncCapsulesResource:
         Raises:
             WrennNotFoundError: If no capsule with the given ID exists.
         """
-        resp = await self._http.post(f"/v1/capsules/{id}/pause")
+        resp = await self._http.post(f"/v1/capsules/{id}/pause", timeout=_LONG_TIMEOUT)
         return CapsuleModel.model_validate(handle_response(resp))
 
     async def resume(self, id: str) -> CapsuleModel:
@@ -285,7 +288,9 @@ class SnapshotsResource:
         params: dict = {}
         if overwrite:
             params["overwrite"] = "true"
-        resp = self._http.post("/v1/snapshots", json=payload, params=params)
+        resp = self._http.post(
+            "/v1/snapshots", json=payload, params=params, timeout=_LONG_TIMEOUT
+        )
         return Template.model_validate(handle_response(resp))
 
     def list(self, type: str | None = None) -> list[Template]:
@@ -347,7 +352,9 @@ class AsyncSnapshotsResource:
         params: dict = {}
         if overwrite:
             params["overwrite"] = "true"
-        resp = await self._http.post("/v1/snapshots", json=payload, params=params)
+        resp = await self._http.post(
+            "/v1/snapshots", json=payload, params=params, timeout=_LONG_TIMEOUT
+        )
         return Template.model_validate(handle_response(resp))
 
     async def list(self, type: str | None = None) -> list[Template]:

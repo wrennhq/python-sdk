@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import builtins
 import json
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
@@ -199,6 +200,7 @@ class Commands:
 
         resp = self._http.post(f"/v1/capsules/{self._capsule_id}/exec", json=payload)
         data = handle_response(resp)
+        assert isinstance(data, dict)
 
         if background:
             return CommandHandle(
@@ -217,6 +219,7 @@ class Commands:
         """
         resp = self._http.get(f"/v1/capsules/{self._capsule_id}/processes")
         data = handle_response(resp)
+        assert isinstance(data, dict)
         return [
             ProcessInfo(
                 pid=p.get("pid", 0),
@@ -252,7 +255,7 @@ class Commands:
         with httpx_ws.connect_ws(
             f"/v1/capsules/{self._capsule_id}/processes/{pid}/stream",
             self._http,
-        ) as ws:
+        ) as ws:  # type: httpx_ws.WebSocketSession
             while True:
                 try:
                     raw = ws.receive_json()
@@ -263,7 +266,9 @@ class Commands:
                 except httpx_ws.WebSocketDisconnect:
                     break
 
-    def stream(self, cmd: str, args: list[str] | None = None) -> Iterator[StreamEvent]:
+    def stream(
+        self, cmd: str, args: builtins.list[str] | None = None
+    ) -> Iterator[StreamEvent]:
         """Execute a command via WebSocket, streaming output as events.
 
         Args:
@@ -280,7 +285,7 @@ class Commands:
         with httpx_ws.connect_ws(
             f"/v1/capsules/{self._capsule_id}/exec/stream",
             self._http,
-        ) as ws:
+        ) as ws:  # type: httpx_ws.WebSocketSession
             if args:
                 start_msg: dict = {"type": "start", "cmd": cmd, "args": args}
             else:
@@ -378,6 +383,7 @@ class AsyncCommands:
             f"/v1/capsules/{self._capsule_id}/exec", json=payload
         )
         data = handle_response(resp)
+        assert isinstance(data, dict)
 
         if background:
             return CommandHandle(
@@ -396,6 +402,7 @@ class AsyncCommands:
         """
         resp = await self._http.get(f"/v1/capsules/{self._capsule_id}/processes")
         data = handle_response(resp)
+        assert isinstance(data, dict)
         return [
             ProcessInfo(
                 pid=p.get("pid", 0),
@@ -433,7 +440,7 @@ class AsyncCommands:
         async with httpx_ws.aconnect_ws(
             f"/v1/capsules/{self._capsule_id}/processes/{pid}/stream",
             self._http,
-        ) as ws:
+        ) as ws:  # type: httpx_ws.AsyncWebSocketSession
             try:
                 while True:
                     raw = await ws.receive_json()
@@ -445,7 +452,7 @@ class AsyncCommands:
                 pass
 
     async def stream(
-        self, cmd: str, args: list[str] | None = None
+        self, cmd: str, args: builtins.list[str] | None = None
     ) -> AsyncIterator[StreamEvent]:
         """Execute a command via WebSocket, streaming output as events.
 
@@ -463,7 +470,7 @@ class AsyncCommands:
         async with httpx_ws.aconnect_ws(
             f"/v1/capsules/{self._capsule_id}/exec/stream",
             self._http,
-        ) as ws:
+        ) as ws:  # type: httpx_ws.AsyncWebSocketSession
             if args:
                 start_msg: dict = {"type": "start", "cmd": cmd, "args": args}
             else:
