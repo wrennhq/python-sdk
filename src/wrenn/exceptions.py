@@ -115,8 +115,11 @@ def handle_response(resp: httpx.Response) -> dict | list:
         try:
             body = resp.json()
         except Exception:
-            resp.raise_for_status()
-            raise
+            raise WrennInternalError(
+                code="internal_error",
+                message=resp.text or f"HTTP {resp.status_code}",
+                status_code=resp.status_code,
+            )
 
         err = body.get("error", {})
         code = err.get("code", "internal_error")
