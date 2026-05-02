@@ -177,4 +177,7 @@ cython_debug/
 CODE_EXECUTION.md
 
 .opencode/
-.claude/
+# AI
+.code-review-graph/
+.claude
+.mcp.json

@@ -244,7 +244,7 @@ class Capsule(BaseCapsule):
         deadline = time.monotonic() + timeout
         headers = {"X-API-Key": self._client._api_key}
 
-        with httpx_ws.connect_ws(ws_url, headers=headers) as ws:
+        with httpx_ws.connect_ws(ws_url, headers=headers) as ws:  # type: httpx_ws.WebSocketSession
             ws.send_text(json.dumps(msg))
             while time.monotonic() < deadline:
                 time_left = deadline - time.monotonic()

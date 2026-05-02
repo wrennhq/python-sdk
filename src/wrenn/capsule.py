@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import builtins
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -96,7 +97,7 @@ class Capsule:
         """
         if _capsule_id is not None:
             assert _client is not None
-            self._id = _capsule_id
+            self._id: str = _capsule_id
             self._client = _client
             self._info = _info
             if self._id is None:
@@ -370,7 +371,7 @@ class Capsule:
     def pty(
         self,
         cmd: str = "/bin/bash",
-        args: list[str] | None = None,
+        args: builtins.list[str] | None = None,
         cols: int = 80,
         rows: int = 24,
         envs: dict[str, str] | None = None,
@@ -401,7 +402,7 @@ class Capsule:
         """
         with httpx_ws.connect_ws(
             f"/v1/capsules/{self._id}/pty", client=self._client.http
-        ) as ws:
+        ) as ws:  # type: httpx_ws.WebSocketSession
             session = PtySession(ws, self._id)
             session._send_start(
                 cmd=cmd, args=args, cols=cols, rows=rows, envs=envs, cwd=cwd
@@ -420,7 +421,7 @@ class Capsule:
         """
         with httpx_ws.connect_ws(
             f"/v1/capsules/{self._id}/pty", client=self._client.http
-        ) as ws:
+        ) as ws:  # type: httpx_ws.WebSocketSession
             session = PtySession(ws, self._id)
             session._send_connect(tag)
             yield session

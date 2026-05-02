@@ -229,7 +229,7 @@ class AsyncCapsule(BaseAsyncCapsule):
         deadline = time.monotonic() + timeout
         headers = {"X-API-Key": self._client._api_key}
 
-        async with httpx_ws.aconnect_ws(ws_url, headers=headers) as ws:
+        async with httpx_ws.aconnect_ws(ws_url, headers=headers) as ws:  # type: httpx_ws.AsyncWebSocketSession
             await ws.send_text(json.dumps(msg))
             while time.monotonic() < deadline:
                 time_left = deadline - time.monotonic()
