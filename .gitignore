@@ -176,6 +176,7 @@ cython_debug/
 
 CODE_EXECUTION.md
 
+.opencode/
 # AI
 .code-review-graph/
 .claude

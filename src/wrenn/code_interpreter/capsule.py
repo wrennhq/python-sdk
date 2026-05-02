@@ -70,6 +70,17 @@ class Capsule(BaseCapsule):
         self._kernel_id = None
         self._proxy_client = None
 
+    def close(self) -> None:
+        if self._proxy_client is not None:
+            try:
+                self._proxy_client.close()
+            except Exception:
+                pass
+            self._proxy_client = None
+
+    def __del__(self) -> None:
+        self.close()
+
     @classmethod
     def create(
         cls,
@@ -150,8 +161,10 @@ class Capsule(BaseCapsule):
                     request=resp.request,
                     response=resp,
                 )
-            except httpx.HTTPStatusError:
-                raise
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code < 500:
+                    raise
+                last_exc = exc
             except Exception as exc:
                 last_exc = exc
             time.sleep(0.5)
@@ -188,8 +201,6 @@ class Capsule(BaseCapsule):
             },
             "buffers": [],
             "channel": "shell",
-            "msg_id": msg_id,
-            "msg_type": "execute_request",
         }
 
     def run_code(
@@ -227,7 +238,7 @@ class Capsule(BaseCapsule):
         ws_url = self._jupyter_ws_url(kernel_id)
 
         msg = self._jupyter_execute_request(code)
-        msg_id = msg["msg_id"]
+        msg_id = msg["header"]["msg_id"]
 
         execution = Execution()
         deadline = time.monotonic() + timeout
@@ -241,7 +252,7 @@ class Capsule(BaseCapsule):
                     break
                 try:
                     data = ws.receive_json(timeout=time_left)
-                except (TimeoutError, Exception):
+                except Exception:
                     break
                 if not data:
                     break

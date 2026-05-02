@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator, Iterator
 
 import httpx
 
-from wrenn.exceptions import WrennNotFoundError, handle_response
+from wrenn.exceptions import WrennNotFoundError, _raise_for_status, handle_response
 from wrenn.models import FileEntry, ListDirResponse, MakeDirResponse
 
 
@@ -46,7 +46,7 @@ class Files:
             f"/v1/capsules/{self._capsule_id}/files/read",
             json={"path": path},
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.content
 
     def write(self, path: str, data: str | bytes) -> None:
@@ -65,7 +65,7 @@ class Files:
             files={"file": ("upload", data)},
             data={"path": path},
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
 
     def list(self, path: str, depth: int = 1) -> list[FileEntry]:
         """List directory contents.
@@ -179,7 +179,7 @@ class Files:
                 "Content-Type": f"multipart/form-data; boundary={boundary.decode('utf-8')}"
             },
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
 
     def download_stream(self, path: str) -> Iterator[bytes]:
         """Stream a large file out of the capsule.
@@ -243,7 +243,7 @@ class AsyncFiles:
             f"/v1/capsules/{self._capsule_id}/files/read",
             json={"path": path},
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.content
 
     async def write(self, path: str, data: str | bytes) -> None:
@@ -262,7 +262,7 @@ class AsyncFiles:
             files={"file": ("upload", data)},
             data={"path": path},
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
 
     async def list(self, path: str, depth: int = 1) -> list[FileEntry]:
         """List directory contents.
@@ -377,7 +377,7 @@ class AsyncFiles:
                 "Content-Type": f"multipart/form-data; boundary={boundary.decode('utf-8')}"
             },
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
 
     async def download_stream(self, path: str) -> AsyncIterator[bytes]:
         """Stream a large file out of the capsule.

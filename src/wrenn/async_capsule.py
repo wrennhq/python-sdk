@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import builtins
 import time
 from collections.abc import AsyncIterator
@@ -242,8 +243,10 @@ class AsyncCapsule:
             if info.status == Status.running:
                 self._info = info
                 return
-            if info.status in (Status.error, Status.stopped, Status.paused):
+            if info.status in (Status.error, Status.stopped):
                 raise RuntimeError(f"Capsule entered {info.status} state while waiting")
+            if info.status == Status.paused:
+                info = await self._client.capsules.resume(self._id)
             await asyncio.sleep(interval)
         raise TimeoutError(f"Capsule {self._id} did not become ready within {timeout}s")
 
@@ -389,8 +392,8 @@ class AsyncCapsule:
     ) -> None:
         try:
             await self._instance_destroy()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.warning("Failed to destroy capsule %s: %s", self._id, exc)
         try:
             await self._client.aclose()
         except Exception:

@@ -40,6 +40,28 @@ class AsyncCapsule(BaseAsyncCapsule):
         self._kernel_id = None
         self._proxy_client = None
 
+    async def close(self) -> None:
+        if self._proxy_client is not None:
+            try:
+                await self._proxy_client.aclose()
+            except Exception:
+                pass
+            self._proxy_client = None
+
+    def __del__(self) -> None:
+        if self._proxy_client is not None:
+            try:
+                import asyncio
+
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(self._proxy_client.aclose())
+                else:
+                    loop.run_until_complete(self._proxy_client.aclose())
+            except Exception:
+                pass
+            self._proxy_client = None
+
     @classmethod
     async def create(
         cls,
@@ -126,8 +148,10 @@ class AsyncCapsule(BaseAsyncCapsule):
                     request=resp.request,
                     response=resp,
                 )
-            except httpx.HTTPStatusError:
-                raise
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code < 500:
+                    raise
+                last_exc = exc
             except Exception as exc:
                 last_exc = exc
             await asyncio.sleep(0.5)
@@ -164,8 +188,6 @@ class AsyncCapsule(BaseAsyncCapsule):
             },
             "buffers": [],
             "channel": "shell",
-            "msg_id": msg_id,
-            "msg_type": "execute_request",
         }
 
     async def run_code(
@@ -201,7 +223,7 @@ class AsyncCapsule(BaseAsyncCapsule):
         ws_url = self._jupyter_ws_url(kernel_id)
 
         msg = self._jupyter_execute_request(code)
-        msg_id = msg["msg_id"]
+        msg_id = msg["header"]["msg_id"]
 
         execution = Execution()
         deadline = time.monotonic() + timeout
@@ -215,7 +237,7 @@ class AsyncCapsule(BaseAsyncCapsule):
                     break
                 try:
                     data = await asyncio.wait_for(ws.receive_json(), timeout=time_left)
-                except (asyncio.TimeoutError, Exception):
+                except Exception:
                     break
                 if not data:
                     break
