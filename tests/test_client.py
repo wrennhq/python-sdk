@@ -23,13 +23,13 @@ BASE = "https://app.wrenn.dev/api"
 
 @pytest.fixture
 def client():
-    with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
+    with WrennClient(api_key="wrn_test1234567890abcdef12345678", base_url=BASE) as c:
         yield c
 
 
 @pytest.fixture
 def async_client():
-    return AsyncWrennClient(api_key="wrn_test1234567890abcdef12345678")
+    return AsyncWrennClient(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
 
 
 class TestCapsules:
@@ -221,7 +221,8 @@ class TestAuthModes:
         with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
             assert c._http.headers["X-API-Key"] == "wrn_test1234567890abcdef12345678"
 
-    def test_no_auth_raises(self):
+    def test_no_auth_raises(self, monkeypatch):
+        monkeypatch.delenv("WRENN_API_KEY", raising=False)
         with pytest.raises(ValueError, match="No API key"):
             WrennClient()
 

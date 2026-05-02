@@ -110,33 +110,42 @@ _ERROR_MAP: dict[str, type[WrennError]] = {
 }
 
 
-def handle_response(resp: httpx.Response) -> dict | list:
-    if resp.status_code >= 400:
-        try:
-            body = resp.json()
-        except Exception:
-            resp.raise_for_status()
-            raise
+def _raise_for_status(resp: httpx.Response) -> None:
+    if resp.status_code < 400:
+        return
 
-        err = body.get("error", {})
-        code = err.get("code", "internal_error")
-        message = err.get("message", resp.text)
+    try:
+        body = resp.json()
+    except Exception:
+        raise WrennInternalError(
+            code="internal_error",
+            message=resp.text or f"HTTP {resp.status_code}",
+            status_code=resp.status_code,
+        )
 
-        exc_cls = _ERROR_MAP.get(code, WrennError)
+    err = body.get("error", {})
+    code = err.get("code", "internal_error")
+    message = err.get("message", resp.text)
 
-        if exc_cls is WrennHostHasCapsulesError:
-            raise WrennHostHasCapsulesError(
-                code=code,
-                message=message,
-                status_code=resp.status_code,
-                capsule_ids=body.get("sandbox_ids", []),
-            )
+    exc_cls = _ERROR_MAP.get(code, WrennError)
 
-        raise exc_cls(
+    if exc_cls is WrennHostHasCapsulesError:
+        raise WrennHostHasCapsulesError(
             code=code,
             message=message,
             status_code=resp.status_code,
+            capsule_ids=body.get("capsule_ids") or body.get("sandbox_ids", []),
         )
+
+    raise exc_cls(
+        code=code,
+        message=message,
+        status_code=resp.status_code,
+    )
+
+
+def handle_response(resp: httpx.Response) -> dict | list:
+    _raise_for_status(resp)
 
     if resp.status_code == 204:
         return {}

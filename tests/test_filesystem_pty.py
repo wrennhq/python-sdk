@@ -23,7 +23,7 @@ def _make_capsule(cap_id: str = "cl-abc") -> Capsule:
     respx.post(f"{BASE}/v1/capsules").respond(
         201, json={"id": cap_id, "status": "running"}
     )
-    return Capsule(api_key="wrn_test1234567890abcdef12345678")
+    return Capsule(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
 
 
 class TestFilesRead:
@@ -311,12 +311,14 @@ class TestPtySessionIteration:
         ws.receive_text.side_effect = messages
         session = PtySession(ws, "cl-abc")
         events = list(session)
-        assert len(events) == 2
+        assert len(events) == 3
         assert events[0].type == PtyEventType.started
         assert session.tag == "pty-abc12345"
         assert session.pid == 1
         assert events[1].type == PtyEventType.output
         assert events[1].data == b"hello"
+        assert events[2].type == PtyEventType.exit
+        assert events[2].exit_code == 0
 
     def test_iter_stops_on_fatal_error(self):
         ws = MagicMock()
@@ -461,10 +463,11 @@ class TestAsyncPtySession:
         events = []
         async for event in session:
             events.append(event)
-        assert len(events) == 2
+        assert len(events) == 3
         assert events[0].type == PtyEventType.started
         assert session.tag == "pty-xyz"
         assert session.pid == 5
+        assert events[2].type == PtyEventType.exit
 
 
 class TestExports:

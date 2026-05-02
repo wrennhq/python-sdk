@@ -32,7 +32,7 @@ class TestCapsuleCreate:
         respx.post(f"{BASE}/v1/capsules").respond(
             201, json={"id": "cl-1", "status": "pending", "template": "minimal"}
         )
-        cap = Capsule(template="minimal", api_key="wrn_test1234567890abcdef12345678")
+        cap = Capsule(template="minimal", api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         assert cap.capsule_id == "cl-1"
         assert hasattr(cap, "commands")
         assert hasattr(cap, "files")
@@ -42,7 +42,7 @@ class TestCapsuleCreate:
         respx.post(f"{BASE}/v1/capsules").respond(
             201, json={"id": "cl-2", "status": "pending"}
         )
-        cap = Capsule.create(api_key="wrn_test1234567890abcdef12345678")
+        cap = Capsule.create(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         assert cap.capsule_id == "cl-2"
 
     @respx.mock
@@ -51,7 +51,7 @@ class TestCapsuleCreate:
             201, json={"id": "cl-1", "status": "pending"}
         )
         kill_route = respx.delete(f"{BASE}/v1/capsules/cl-1").respond(204)
-        with Capsule(api_key="wrn_test1234567890abcdef12345678") as cap:
+        with Capsule(api_key="wrn_test1234567890abcdef12345678", base_url=BASE) as cap:
             assert cap.capsule_id == "cl-1"
         assert kill_route.called
 
@@ -61,7 +61,7 @@ class TestCapsuleCreate:
         respx.post(f"{BASE}/v1/capsules").respond(
             201, json={"id": "cl-3", "status": "pending"}
         )
-        cap = Capsule()
+        cap = Capsule(base_url=BASE)
         assert cap.capsule_id == "cl-3"
 
 
@@ -69,7 +69,7 @@ class TestCapsuleStaticMethods:
     @respx.mock
     def test_static_destroy(self):
         route = respx.delete(f"{BASE}/v1/capsules/cl-1").respond(204)
-        Capsule._static_destroy("cl-1", api_key="wrn_test1234567890abcdef12345678")
+        Capsule._static_destroy("cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         assert route.called
 
     @respx.mock
@@ -77,7 +77,7 @@ class TestCapsuleStaticMethods:
         respx.post(f"{BASE}/v1/capsules/cl-1/pause").respond(
             200, json={"id": "cl-1", "status": "paused"}
         )
-        info = Capsule._static_pause("cl-1", api_key="wrn_test1234567890abcdef12345678")
+        info = Capsule._static_pause("cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         assert info.status.value == "paused"
 
     @respx.mock
@@ -85,7 +85,7 @@ class TestCapsuleStaticMethods:
         respx.get(f"{BASE}/v1/capsules").respond(
             200, json=[{"id": "cl-1", "status": "running"}]
         )
-        items = Capsule.list(api_key="wrn_test1234567890abcdef12345678")
+        items = Capsule.list(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         assert len(items) == 1
         assert items[0].id == "cl-1"
 
@@ -95,7 +95,7 @@ class TestCapsuleStaticMethods:
             200, json={"id": "cl-1", "status": "running"}
         )
         info = Capsule._static_get_info(
-            "cl-1", api_key="wrn_test1234567890abcdef12345678"
+            "cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE
         )
         assert info.id == "cl-1"
 
@@ -106,7 +106,7 @@ class TestCapsuleConnect:
         respx.get(f"{BASE}/v1/capsules/cl-1").respond(
             200, json={"id": "cl-1", "status": "running"}
         )
-        cap = Capsule.connect("cl-1", api_key="wrn_test1234567890abcdef12345678")
+        cap = Capsule.connect("cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         assert cap.capsule_id == "cl-1"
 
     @respx.mock
@@ -117,7 +117,7 @@ class TestCapsuleConnect:
         respx.post(f"{BASE}/v1/capsules/cl-1/resume").respond(
             200, json={"id": "cl-1", "status": "running"}
         )
-        cap = Capsule.connect("cl-1", api_key="wrn_test1234567890abcdef12345678")
+        cap = Capsule.connect("cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         assert cap.capsule_id == "cl-1"
 
 

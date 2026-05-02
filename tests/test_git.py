@@ -73,7 +73,7 @@ def _make_git(respx_mock=None) -> Git:
     """Create a Git instance bound to a test capsule."""
     from wrenn.client import WrennClient
 
-    client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+    client = WrennClient(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
     return Git(CAPSULE_ID, client.http)
 
 
@@ -81,7 +81,7 @@ def _make_async_git() -> AsyncGit:
     """Create an AsyncGit instance bound to a test capsule."""
     from wrenn.client import AsyncWrennClient
 
-    client = AsyncWrennClient(api_key="wrn_test1234567890abcdef12345678")
+    client = AsyncWrennClient(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
     return AsyncGit(CAPSULE_ID, client.http)
 
 
@@ -926,7 +926,7 @@ class TestCapsuleWiring:
         respx.post(f"{BASE}/v1/capsules").respond(
             201, json={"id": "cl-1", "status": "pending"}
         )
-        cap = Capsule(api_key="wrn_test1234567890abcdef12345678")
+        cap = Capsule(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         assert hasattr(cap, "git")
         assert isinstance(cap.git, Git)
 
@@ -1017,7 +1017,7 @@ class TestCommandPayloadWrapping:
         from wrenn.client import WrennClient
         from wrenn.commands import Commands
 
-        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         commands = Commands(CAPSULE_ID, client.http)
 
         route = respx.post(EXEC_URL).respond(200, json=_exec_response(stdout="3\n"))
@@ -1031,7 +1031,7 @@ class TestCommandPayloadWrapping:
         from wrenn.client import WrennClient
         from wrenn.commands import Commands
 
-        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         commands = Commands(CAPSULE_ID, client.http)
 
         route = respx.post(EXEC_URL).respond(200, json=_exec_response())
@@ -1045,7 +1045,7 @@ class TestCommandPayloadWrapping:
         from wrenn.client import WrennClient
         from wrenn.commands import Commands
 
-        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         commands = Commands(CAPSULE_ID, client.http)
 
         route = respx.post(EXEC_URL).respond(200, json=_exec_response())
@@ -1059,7 +1059,7 @@ class TestCommandPayloadWrapping:
         from wrenn.client import WrennClient
         from wrenn.commands import Commands
 
-        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         commands = Commands(CAPSULE_ID, client.http)
 
         route = respx.post(EXEC_URL).respond(200, json=_exec_response())
@@ -1073,7 +1073,7 @@ class TestCommandPayloadWrapping:
         from wrenn.client import WrennClient
         from wrenn.commands import Commands
 
-        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         commands = Commands(CAPSULE_ID, client.http)
 
         route = respx.post(EXEC_URL).respond(200, json=_exec_response())
@@ -1089,7 +1089,7 @@ class TestCommandPayloadWrapping:
         from wrenn.client import WrennClient
         from wrenn.commands import Commands
 
-        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         commands = Commands(CAPSULE_ID, client.http)
 
         route = respx.post(EXEC_URL).respond(200, json=_exec_response())
@@ -1119,7 +1119,7 @@ class TestCommandPayloadWrapping:
         from wrenn.client import WrennClient
         from wrenn.commands import Commands
 
-        client = WrennClient(api_key="wrn_test1234567890abcdef12345678")
+        client = WrennClient(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         commands = Commands(CAPSULE_ID, client.http)
 
         route = respx.post(EXEC_URL).respond(200, json={"pid": 42, "tag": "bg-1"})

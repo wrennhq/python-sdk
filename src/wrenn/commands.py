@@ -5,7 +5,7 @@ import builtins
 import json
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
-from typing import overload, Literal
+from typing import Literal, overload
 
 import httpx
 import httpx_ws
@@ -198,7 +198,15 @@ class Commands:
         if tag is not None:
             payload["tag"] = tag
 
-        resp = self._http.post(f"/v1/capsules/{self._capsule_id}/exec", json=payload)
+        http_timeout: httpx.Timeout | None = None
+        if not background and timeout is not None:
+            http_timeout = httpx.Timeout(timeout + 10, connect=5.0)
+
+        resp = self._http.post(
+            f"/v1/capsules/{self._capsule_id}/exec",
+            json=payload,
+            timeout=http_timeout,
+        )
         data = handle_response(resp)
         assert isinstance(data, dict)
 
@@ -379,8 +387,14 @@ class AsyncCommands:
         if tag is not None:
             payload["tag"] = tag
 
+        http_timeout: httpx.Timeout | None = None
+        if not background and timeout is not None:
+            http_timeout = httpx.Timeout(timeout + 10, connect=5.0)
+
         resp = await self._http.post(
-            f"/v1/capsules/{self._capsule_id}/exec", json=payload
+            f"/v1/capsules/{self._capsule_id}/exec",
+            json=payload,
+            timeout=http_timeout,
         )
         data = handle_response(resp)
         assert isinstance(data, dict)
