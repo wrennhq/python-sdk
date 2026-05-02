@@ -153,7 +153,8 @@ class PtySession:
             if event.pid is not None:
                 self._pid = event.pid
         if event.type == PtyEventType.exit:
-            raise StopIteration
+            self._done = True
+            return event
         if event.type == PtyEventType.error and event.fatal:
             self._done = True
             return event
@@ -281,7 +282,8 @@ class AsyncPtySession:
             if event.pid is not None:
                 self._pid = event.pid
         if event.type == PtyEventType.exit:
-            raise StopAsyncIteration
+            self._done = True
+            return event
         if event.type == PtyEventType.error and event.fatal:
             self._done = True
             return event

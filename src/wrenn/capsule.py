@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -94,21 +95,28 @@ class Capsule:
                 ``WRENN_BASE_URL`` or the default production endpoint.
         """
         if _capsule_id is not None:
-            # Internal construction path (from create/connect classmethods)
             assert _client is not None
             self._id = _capsule_id
             self._client = _client
             self._info = _info
+            if self._id is None:
+                self._client.close()
+                raise RuntimeError("API returned a capsule without an ID")
         else:
-            # Public construction: create a capsule immediately
             self._client = WrennClient(api_key=api_key, base_url=base_url)
-            self._info = self._client.capsules.create(
-                template=template,
-                vcpus=vcpus,
-                memory_mb=memory_mb,
-                timeout_sec=timeout,
-            )
-            self._id = self._info.id
+            try:
+                self._info = self._client.capsules.create(
+                    template=template,
+                    vcpus=vcpus,
+                    memory_mb=memory_mb,
+                    timeout_sec=timeout,
+                )
+                self._id = self._info.id
+                if self._id is None:
+                    raise RuntimeError("API returned a capsule without an ID")
+            except Exception:
+                self._client.close()
+                raise
 
         self.commands = Commands(self._id, self._client.http)
         self.files = Files(self._id, self._client.http)
@@ -316,8 +324,10 @@ class Capsule:
             if info.status == Status.running:
                 self._info = info
                 return
-            if info.status in (Status.error, Status.stopped, Status.paused):
+            if info.status in (Status.error, Status.stopped):
                 raise RuntimeError(f"Capsule entered {info.status} state while waiting")
+            if info.status == Status.paused:
+                info = self._client.capsules.resume(self._id)
             time.sleep(interval)
         raise TimeoutError(f"Capsule {self._id} did not become ready within {timeout}s")
 
@@ -462,8 +472,8 @@ class Capsule:
     ) -> None:
         try:
             self._instance_destroy()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.warning("Failed to destroy capsule %s: %s", self._id, exc)
         try:
             self._client.close()
         except Exception:
