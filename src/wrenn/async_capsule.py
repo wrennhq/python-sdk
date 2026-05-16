@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import builtins
+import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -140,13 +140,18 @@ class AsyncCapsule:
         info = await client.capsules.get(capsule_id)
 
         if info.status == Status.paused:
-            info = await client.capsules.resume(capsule_id)
+            await client.capsules.resume(capsule_id)
 
-        return cls(
+        capsule = cls(
             _capsule_id=capsule_id,
             _client=client,
             _info=info,
         )
+
+        if info.status != Status.running:
+            await capsule.wait_ready()
+
+        return capsule
 
     # ── Dual instance/static lifecycle ──────────────────────────
 
@@ -224,12 +229,21 @@ class AsyncCapsule:
         """
         await self._client.capsules.ping(self._id)
 
-    async def wait_ready(self, timeout: float = 30, interval: float = 0.5) -> None:
+    _POLL_INTERVALS: dict[Status, float] = {
+        Status.starting: 0.5,
+        Status.resuming: 0.5,
+        Status.pausing: 2.0,
+        Status.stopping: 1.0,
+    }
+
+    async def wait_ready(self, timeout: float = 30) -> None:
         """Await until the capsule status is ``running``.
+
+        Polling interval adapts to the current transient status:
+        0.5 s for starting/resuming, 2 s for pausing, 1 s for stopping.
 
         Args:
             timeout (float): Maximum seconds to wait. Defaults to ``30``.
-            interval (float): Polling interval in seconds. Defaults to ``0.5``.
 
         Raises:
             TimeoutError: If the capsule does not reach ``running`` state
@@ -246,7 +260,10 @@ class AsyncCapsule:
             if info.status in (Status.error, Status.stopped):
                 raise RuntimeError(f"Capsule entered {info.status} state while waiting")
             if info.status == Status.paused:
-                info = await self._client.capsules.resume(self._id)
+                await self._client.capsules.resume(self._id)
+            interval = (
+                self._POLL_INTERVALS.get(info.status, 0.5) if info.status else 0.5
+            )
             await asyncio.sleep(interval)
         raise TimeoutError(f"Capsule {self._id} did not become ready within {timeout}s")
 
