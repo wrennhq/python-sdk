@@ -1964,15 +1964,17 @@ inactivity TTL is set.
 #### wait\_ready
 
 ```python
-async def wait_ready(timeout: float = 30, interval: float = 0.5) -> None
+async def wait_ready(timeout: float = 30) -> None
 ```
 
 Await until the capsule status is ``running``.
 
+Polling interval adapts to the current transient status:
+0.5 s for starting/resuming, 2 s for pausing, 1 s for stopping.
+
 **Arguments**:
 
 - `timeout` _float_ - Maximum seconds to wait. Defaults to ``30``.
-- `interval` _float_ - Polling interval in seconds. Defaults to ``0.5``.
   
 
 **Raises**:
@@ -2534,15 +2536,17 @@ inactivity TTL is set.
 #### wait\_ready
 
 ```python
-def wait_ready(timeout: float = 30, interval: float = 0.5) -> None
+def wait_ready(timeout: float = 30) -> None
 ```
 
 Block until the capsule status is ``running``.
 
+Polling interval adapts to the current transient status:
+0.5 s for starting/resuming, 2 s for pausing, 1 s for stopping.
+
 **Arguments**:
 
 - `timeout` _float_ - Maximum seconds to wait. Defaults to ``30``.
-- `interval` _float_ - Polling interval in seconds. Defaults to ``0.5``.
   
 
 **Raises**:
@@ -2699,17 +2703,6 @@ Create a snapshot template from this capsule's current state.
 <a id="wrenn._config"></a>
 
 # wrenn.\_config
-
-<a id="wrenn._config.ConnectionConfig"></a>
-
-## ConnectionConfig Objects
-
-```python
-@dataclass(frozen=True)
-class ConnectionConfig()
-```
-
-Resolved credentials and base URL for Wrenn API calls.
 
 <a id="wrenn._git._auth"></a>
 

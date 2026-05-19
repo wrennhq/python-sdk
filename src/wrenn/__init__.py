@@ -37,7 +37,7 @@ from wrenn.exceptions import (
 from wrenn.models import FileEntry
 from wrenn.pty import AsyncPtySession, PtyEvent, PtyEventType, PtySession
 
-__version__ = "0.1.0"
+__version__ = "0.1.4"
 
 __all__ = [
     "__version__",

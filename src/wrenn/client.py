@@ -111,7 +111,7 @@ class CapsulesResource:
         Raises:
             WrennNotFoundError: If no capsule with the given ID exists.
         """
-        resp = self._http.post(f"/v1/capsules/{id}/pause", timeout=_LONG_TIMEOUT)
+        resp = self._http.post(f"/v1/capsules/{id}/pause")
         return CapsuleModel.model_validate(handle_response(resp))
 
     def resume(self, id: str) -> CapsuleModel:
@@ -227,7 +227,7 @@ class AsyncCapsulesResource:
         Raises:
             WrennNotFoundError: If no capsule with the given ID exists.
         """
-        resp = await self._http.post(f"/v1/capsules/{id}/pause", timeout=_LONG_TIMEOUT)
+        resp = await self._http.post(f"/v1/capsules/{id}/pause")
         return CapsuleModel.model_validate(handle_response(resp))
 
     async def resume(self, id: str) -> CapsuleModel:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import builtins
+import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -10,13 +10,52 @@ from contextlib import asynccontextmanager
 import httpx_ws
 
 from wrenn._git import AsyncGit
-from wrenn.capsule import _DualMethod, _build_proxy_url
+from wrenn.capsule import (
+    _DEFAULT_WAIT_TIMEOUT,
+    _DESTROY_INTERVAL,
+    _FAIL_STATUSES,
+    _PAUSE_INTERVAL,
+    _RESUME_INTERVAL,
+    _START_INTERVAL,
+    _DualMethod,
+    _build_proxy_url,
+)
 from wrenn.client import AsyncWrennClient
 from wrenn.commands import AsyncCommands
+from wrenn.exceptions import WrennNotFoundError
 from wrenn.files import AsyncFiles
 from wrenn.models import Capsule as CapsuleModel
 from wrenn.models import Status, Template
 from wrenn.pty import AsyncPtySession
+
+
+async def _apoll_until(
+    fetch,
+    targets: set[Status],
+    interval: float,
+    timeout: float = _DEFAULT_WAIT_TIMEOUT,
+    fail_on: set[Status] | None = None,
+) -> CapsuleModel:
+    fail = fail_on if fail_on is not None else _FAIL_STATUSES
+    treat_missing_as_target = Status.missing in targets
+    deadline = time.monotonic() + timeout
+    last: CapsuleModel | None = None
+    while time.monotonic() < deadline:
+        try:
+            last = await fetch()
+        except WrennNotFoundError:
+            if treat_missing_as_target:
+                return CapsuleModel(status=Status.missing)
+            raise
+        if last.status in targets:
+            return last
+        if last.status is not None and last.status in fail:
+            raise RuntimeError(f"Capsule entered {last.status} state while waiting")
+        await asyncio.sleep(interval)
+    raise TimeoutError(
+        f"Capsule did not reach {targets} within {timeout}s "
+        f"(last status: {last.status if last else 'unknown'})"
+    )
 
 
 class AsyncCapsule:
@@ -139,14 +178,20 @@ class AsyncCapsule:
         client = AsyncWrennClient(api_key=api_key, base_url=base_url)
         info = await client.capsules.get(capsule_id)
 
-        if info.status == Status.paused:
-            info = await client.capsules.resume(capsule_id)
-
-        return cls(
+        capsule = cls(
             _capsule_id=capsule_id,
             _client=client,
             _info=info,
         )
+
+        if info.status == Status.pausing:
+            info = await capsule._wait_for_status({Status.paused}, _PAUSE_INTERVAL)
+        if info.status == Status.paused:
+            await client.capsules.resume(capsule_id)
+        if info.status != Status.running:
+            await capsule.wait_ready()
+
+        return capsule
 
     # ── Dual instance/static lifecycle ──────────────────────────
 
@@ -155,22 +200,35 @@ class AsyncCapsule:
     resume = _DualMethod("_instance_resume", "_static_resume")
     get_info = _DualMethod("_instance_get_info", "_static_get_info")
 
-    async def _instance_destroy(self) -> None:
+    async def _instance_destroy(self, wait: bool = False) -> None:
         await self._client.capsules.destroy(self._id)
+        if wait:
+            await self._wait_for_status(
+                {Status.stopped, Status.missing}, _DESTROY_INTERVAL
+            )
 
     @classmethod
     async def _static_destroy(
         cls,
         capsule_id: str,
         *,
+        wait: bool = False,
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> None:
         async with AsyncWrennClient(api_key=api_key, base_url=base_url) as client:
             await client.capsules.destroy(capsule_id)
+            if wait:
+                await _apoll_until(
+                    lambda: client.capsules.get(capsule_id),
+                    {Status.stopped, Status.missing},
+                    _DESTROY_INTERVAL,
+                )
 
-    async def _instance_pause(self) -> CapsuleModel:
+    async def _instance_pause(self, wait: bool = False) -> CapsuleModel:
         self._info = await self._client.capsules.pause(self._id)
+        if wait:
+            self._info = await self._wait_for_status({Status.paused}, _PAUSE_INTERVAL)
         return self._info
 
     @classmethod
@@ -178,14 +236,24 @@ class AsyncCapsule:
         cls,
         capsule_id: str,
         *,
+        wait: bool = False,
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> CapsuleModel:
         async with AsyncWrennClient(api_key=api_key, base_url=base_url) as client:
-            return await client.capsules.pause(capsule_id)
+            info = await client.capsules.pause(capsule_id)
+            if wait:
+                info = await _apoll_until(
+                    lambda: client.capsules.get(capsule_id),
+                    {Status.paused},
+                    _PAUSE_INTERVAL,
+                )
+            return info
 
-    async def _instance_resume(self) -> CapsuleModel:
+    async def _instance_resume(self, wait: bool = False) -> CapsuleModel:
         self._info = await self._client.capsules.resume(self._id)
+        if wait:
+            self._info = await self._wait_for_status({Status.running}, _RESUME_INTERVAL)
         return self._info
 
     @classmethod
@@ -193,11 +261,19 @@ class AsyncCapsule:
         cls,
         capsule_id: str,
         *,
+        wait: bool = False,
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> CapsuleModel:
         async with AsyncWrennClient(api_key=api_key, base_url=base_url) as client:
-            return await client.capsules.resume(capsule_id)
+            info = await client.capsules.resume(capsule_id)
+            if wait:
+                info = await _apoll_until(
+                    lambda: client.capsules.get(capsule_id),
+                    {Status.running},
+                    _RESUME_INTERVAL,
+                )
+            return info
 
     async def _instance_get_info(self) -> CapsuleModel:
         self._info = await self._client.capsules.get(self._id)
@@ -224,31 +300,30 @@ class AsyncCapsule:
         """
         await self._client.capsules.ping(self._id)
 
-    async def wait_ready(self, timeout: float = 30, interval: float = 0.5) -> None:
-        """Await until the capsule status is ``running``.
+    async def _wait_for_status(
+        self,
+        targets: set[Status],
+        interval: float,
+        timeout: float = _DEFAULT_WAIT_TIMEOUT,
+    ) -> CapsuleModel:
+        info = await _apoll_until(
+            lambda: self._client.capsules.get(self._id),
+            targets,
+            interval,
+            timeout,
+            fail_on={Status.error, Status.stopped, Status.missing} - targets,
+        )
+        self._info = info
+        return info
 
-        Args:
-            timeout (float): Maximum seconds to wait. Defaults to ``30``.
-            interval (float): Polling interval in seconds. Defaults to ``0.5``.
+    async def wait_ready(self, timeout: float = _DEFAULT_WAIT_TIMEOUT) -> None:
+        """Await until capsule status is ``running``.
 
         Raises:
-            TimeoutError: If the capsule does not reach ``running`` state
-                within ``timeout`` seconds.
-            RuntimeError: If the capsule enters an error, stopped, or paused
-                state while waiting.
+            TimeoutError: If capsule does not reach ``running`` within ``timeout``.
+            RuntimeError: If capsule enters error/stopped/missing while waiting.
         """
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            info = await self._client.capsules.get(self._id)
-            if info.status == Status.running:
-                self._info = info
-                return
-            if info.status in (Status.error, Status.stopped):
-                raise RuntimeError(f"Capsule entered {info.status} state while waiting")
-            if info.status == Status.paused:
-                info = await self._client.capsules.resume(self._id)
-            await asyncio.sleep(interval)
-        raise TimeoutError(f"Capsule {self._id} did not become ready within {timeout}s")
+        await self._wait_for_status({Status.running}, _START_INTERVAL, timeout)
 
     async def is_running(self) -> bool:
         """Check whether the capsule is currently running.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 import respx
 
 from wrenn.capsule import Capsule, _build_proxy_url
@@ -30,9 +31,13 @@ class TestCapsuleCreate:
     @respx.mock
     def test_capsule_constructor_creates(self):
         respx.post(f"{BASE}/v1/capsules").respond(
-            201, json={"id": "cl-1", "status": "pending", "template": "minimal"}
+            202, json={"id": "cl-1", "status": "starting", "template": "minimal"}
         )
-        cap = Capsule(template="minimal", api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
+        cap = Capsule(
+            template="minimal",
+            api_key="wrn_test1234567890abcdef12345678",
+            base_url=BASE,
+        )
         assert cap.capsule_id == "cl-1"
         assert hasattr(cap, "commands")
         assert hasattr(cap, "files")
@@ -40,7 +45,7 @@ class TestCapsuleCreate:
     @respx.mock
     def test_capsule_create_classmethod(self):
         respx.post(f"{BASE}/v1/capsules").respond(
-            201, json={"id": "cl-2", "status": "pending"}
+            202, json={"id": "cl-2", "status": "starting"}
         )
         cap = Capsule.create(api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
         assert cap.capsule_id == "cl-2"
@@ -48,9 +53,9 @@ class TestCapsuleCreate:
     @respx.mock
     def test_capsule_context_manager_kills(self):
         respx.post(f"{BASE}/v1/capsules").respond(
-            201, json={"id": "cl-1", "status": "pending"}
+            202, json={"id": "cl-1", "status": "starting"}
         )
-        kill_route = respx.delete(f"{BASE}/v1/capsules/cl-1").respond(204)
+        kill_route = respx.delete(f"{BASE}/v1/capsules/cl-1").respond(202)
         with Capsule(api_key="wrn_test1234567890abcdef12345678", base_url=BASE) as cap:
             assert cap.capsule_id == "cl-1"
         assert kill_route.called
@@ -59,7 +64,7 @@ class TestCapsuleCreate:
     def test_capsule_env_var(self, monkeypatch):
         monkeypatch.setenv("WRENN_API_KEY", "wrn_from_env_key")
         respx.post(f"{BASE}/v1/capsules").respond(
-            201, json={"id": "cl-3", "status": "pending"}
+            202, json={"id": "cl-3", "status": "starting"}
         )
         cap = Capsule(base_url=BASE)
         assert cap.capsule_id == "cl-3"
@@ -68,17 +73,21 @@ class TestCapsuleCreate:
 class TestCapsuleStaticMethods:
     @respx.mock
     def test_static_destroy(self):
-        route = respx.delete(f"{BASE}/v1/capsules/cl-1").respond(204)
-        Capsule._static_destroy("cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
+        route = respx.delete(f"{BASE}/v1/capsules/cl-1").respond(202)
+        Capsule._static_destroy(
+            "cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE
+        )
         assert route.called
 
     @respx.mock
     def test_static_pause(self):
         respx.post(f"{BASE}/v1/capsules/cl-1/pause").respond(
-            200, json={"id": "cl-1", "status": "paused"}
+            202, json={"id": "cl-1", "status": "pausing"}
         )
-        info = Capsule._static_pause("cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
-        assert info.status.value == "paused"
+        info = Capsule._static_pause(
+            "cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE
+        )
+        assert info.status.value == "pausing"
 
     @respx.mock
     def test_static_list(self):
@@ -106,18 +115,24 @@ class TestCapsuleConnect:
         respx.get(f"{BASE}/v1/capsules/cl-1").respond(
             200, json={"id": "cl-1", "status": "running"}
         )
-        cap = Capsule.connect("cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
+        cap = Capsule.connect(
+            "cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE
+        )
         assert cap.capsule_id == "cl-1"
 
     @respx.mock
     def test_connect_paused_resumes(self):
-        respx.get(f"{BASE}/v1/capsules/cl-1").respond(
-            200, json={"id": "cl-1", "status": "paused"}
-        )
+        get_route = respx.get(f"{BASE}/v1/capsules/cl-1")
+        get_route.side_effect = [
+            httpx.Response(200, json={"id": "cl-1", "status": "paused"}),
+            httpx.Response(200, json={"id": "cl-1", "status": "running"}),
+        ]
         respx.post(f"{BASE}/v1/capsules/cl-1/resume").respond(
-            200, json={"id": "cl-1", "status": "running"}
+            202, json={"id": "cl-1", "status": "resuming"}
         )
-        cap = Capsule.connect("cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE)
+        cap = Capsule.connect(
+            "cl-1", api_key="wrn_test1234567890abcdef12345678", base_url=BASE
+        )
         assert cap.capsule_id == "cl-1"
 
 
