@@ -169,3 +169,39 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 2. Use `detect_changes` for code review.
 3. Use `get_affected_flows` to understand impact.
 4. Use `query_graph` pattern="tests_for" to check coverage.
+
+## Code Runner Module
+
+`wrenn.code_runner` — stateful code execution capsule via persistent
+Jupyter kernel.
+
+- **Module path:** `wrenn.code_runner` (canonical). The old path
+  `wrenn.code_interpreter` is a deprecation alias that emits a
+  `FutureWarning` on import; do not introduce new uses.
+- **Defaults:** template `code-runner-beta`, kernelspec `wrenn`.
+  Both overridable via `Capsule(template=..., kernel=...)`.
+- **Kernel reuse:** `_ensure_kernel` lists `/api/kernels`, reuses the
+  first kernel whose `name` matches the configured kernelspec, else
+  POSTs `{"name": <kernel>}` to create one. Matching by name (not just
+  "any kernel") is intentional — multiple kernelspecs may coexist on
+  the same Jupyter.
+- **Lifecycle invariant:** the constructor sets `_kernel_id`,
+  `_kernel_name`, `_proxy_client` to safe defaults *before* calling
+  `super().__init__`. `__del__` must never assume construction
+  completed. Async `__del__` only drops the reference — the proxy
+  `httpx.AsyncClient` must be closed via `await close()` or
+  `async with`.
+
+### Tests
+
+- `tests/test_code_runner_unit.py` — pure unit tests (respx + mocked
+  WebSocket). Covers `Result.from_bundle`, MIME unpacking,
+  quote-stripping, `Execution.text`, kernel reuse vs create, retry on
+  5xx, 4xx propagation, ctor-failure-safe `__del__`, deprecation
+  alias.
+- `tests/test_code_runner_e2e.py` — live integration tests (marked
+  `integration`, skipped without `WRENN_API_KEY`). Covers stateful
+  execution, exceptions, callbacks, rich outputs (HTML, matplotlib,
+  pandas), async variant, isolation between capsules, and the
+  deprecated `code_interpreter` import path.
+- Run both: `make test-code-runner`.

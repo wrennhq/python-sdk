@@ -4,7 +4,7 @@ import httpx
 import respx
 
 from wrenn.capsule import Capsule, _build_proxy_url
-from wrenn.code_interpreter.models import Execution, ExecutionError, Logs, Result
+from wrenn.code_runner.models import Execution, ExecutionError, Logs, Result
 
 BASE = "https://app.wrenn.dev/api"
 
@@ -152,10 +152,11 @@ class TestExecutionModels:
         assert r.png == "base64data"
         assert r.is_main_result is True
 
-    def test_result_from_bundle_strips_quotes(self):
+    def test_result_from_bundle_preserves_text_plain(self):
+        # ``text/plain`` is the Jupyter repr — preserved verbatim now.
         bundle = {"text/plain": "'hello'"}
         r = Result.from_bundle(bundle)
-        assert r.text == "hello"
+        assert r.text == "'hello'"
 
     def test_result_from_bundle_extra_mimes(self):
         bundle = {"text/plain": "x", "application/vnd.custom": "data"}
