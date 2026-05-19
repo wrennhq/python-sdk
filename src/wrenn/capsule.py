@@ -13,6 +13,7 @@ import httpx_ws
 from wrenn._git import Git
 from wrenn.client import WrennClient
 from wrenn.commands import Commands
+from wrenn.exceptions import WrennNotFoundError
 from wrenn.files import Files
 from wrenn.models import Capsule as CapsuleModel
 from wrenn.models import Status, Template
@@ -26,6 +27,44 @@ def _build_proxy_url(base_url: str, capsule_id: str | None, port: int) -> str:
         host = f"{host}:{parsed.port}"
     scheme = "ws" if parsed.scheme == "http" else "wss"
     return f"{scheme}://{port}-{capsule_id}.{host}"
+
+
+_RESUME_INTERVAL = 0.5
+_DESTROY_INTERVAL = 0.5
+_PAUSE_INTERVAL = 2.0
+_START_INTERVAL = 0.5
+_DEFAULT_WAIT_TIMEOUT = 30.0
+_FAIL_STATUSES = {Status.error}
+
+
+def _poll_until(
+    fetch,
+    targets: set[Status],
+    interval: float,
+    timeout: float = _DEFAULT_WAIT_TIMEOUT,
+    fail_on: set[Status] | None = None,
+) -> CapsuleModel:
+    """Poll ``fetch()`` until status ∈ ``targets``. Raise on ``fail_on``/timeout."""
+    fail = fail_on if fail_on is not None else _FAIL_STATUSES
+    treat_missing_as_target = Status.missing in targets
+    deadline = time.monotonic() + timeout
+    last: CapsuleModel | None = None
+    while time.monotonic() < deadline:
+        try:
+            last = fetch()
+        except WrennNotFoundError:
+            if treat_missing_as_target:
+                return CapsuleModel(status=Status.missing)
+            raise
+        if last.status in targets:
+            return last
+        if last.status is not None and last.status in fail:
+            raise RuntimeError(f"Capsule entered {last.status} state while waiting")
+        time.sleep(interval)
+    raise TimeoutError(
+        f"Capsule did not reach {targets} within {timeout}s "
+        f"(last status: {last.status if last else 'unknown'})"
+    )
 
 
 class _DualMethod:
@@ -100,9 +139,6 @@ class Capsule:
             self._id: str = _capsule_id
             self._client = _client
             self._info = _info
-            if self._id is None:
-                self._client.close()
-                raise RuntimeError("API returned a capsule without an ID")
         else:
             self._client = WrennClient(api_key=api_key, base_url=base_url)
             try:
@@ -213,15 +249,16 @@ class Capsule:
         client = WrennClient(api_key=api_key, base_url=base_url)
         info = client.capsules.get(capsule_id)
 
-        if info.status == Status.paused:
-            client.capsules.resume(capsule_id)
-
         capsule = cls(
             _capsule_id=capsule_id,
             _client=client,
             _info=info,
         )
 
+        if info.status == Status.pausing:
+            info = capsule._wait_for_status({Status.paused}, _PAUSE_INTERVAL)
+        if info.status == Status.paused:
+            client.capsules.resume(capsule_id)
         if info.status != Status.running:
             capsule.wait_ready()
 
@@ -234,25 +271,36 @@ class Capsule:
     resume = _DualMethod("_instance_resume", "_static_resume")
     get_info = _DualMethod("_instance_get_info", "_static_get_info")
 
-    def _instance_destroy(self) -> None:
-        """Destroy this capsule."""
+    def _instance_destroy(self, wait: bool = False) -> None:
+        """Destroy this capsule. If ``wait``, poll until stopped/missing."""
         self._client.capsules.destroy(self._id)
+        if wait:
+            self._wait_for_status({Status.stopped, Status.missing}, _DESTROY_INTERVAL)
 
     @classmethod
     def _static_destroy(
         cls,
         capsule_id: str,
         *,
+        wait: bool = False,
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> None:
         """Destroy a capsule by ID."""
         with WrennClient(api_key=api_key, base_url=base_url) as client:
             client.capsules.destroy(capsule_id)
+            if wait:
+                _poll_until(
+                    lambda: client.capsules.get(capsule_id),
+                    {Status.stopped, Status.missing},
+                    _DESTROY_INTERVAL,
+                )
 
-    def _instance_pause(self) -> CapsuleModel:
-        """Pause this capsule."""
+    def _instance_pause(self, wait: bool = False) -> CapsuleModel:
+        """Pause this capsule. If ``wait``, poll until ``paused``."""
         self._info = self._client.capsules.pause(self._id)
+        if wait:
+            self._info = self._wait_for_status({Status.paused}, _PAUSE_INTERVAL)
         return self._info
 
     @classmethod
@@ -260,16 +308,26 @@ class Capsule:
         cls,
         capsule_id: str,
         *,
+        wait: bool = False,
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> CapsuleModel:
         """Pause a capsule by ID."""
         with WrennClient(api_key=api_key, base_url=base_url) as client:
-            return client.capsules.pause(capsule_id)
+            info = client.capsules.pause(capsule_id)
+            if wait:
+                info = _poll_until(
+                    lambda: client.capsules.get(capsule_id),
+                    {Status.paused},
+                    _PAUSE_INTERVAL,
+                )
+            return info
 
-    def _instance_resume(self) -> CapsuleModel:
-        """Resume this capsule."""
+    def _instance_resume(self, wait: bool = False) -> CapsuleModel:
+        """Resume this capsule. If ``wait``, poll until ``running``."""
         self._info = self._client.capsules.resume(self._id)
+        if wait:
+            self._info = self._wait_for_status({Status.running}, _RESUME_INTERVAL)
         return self._info
 
     @classmethod
@@ -277,12 +335,20 @@ class Capsule:
         cls,
         capsule_id: str,
         *,
+        wait: bool = False,
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> CapsuleModel:
         """Resume a capsule by ID."""
         with WrennClient(api_key=api_key, base_url=base_url) as client:
-            return client.capsules.resume(capsule_id)
+            info = client.capsules.resume(capsule_id)
+            if wait:
+                info = _poll_until(
+                    lambda: client.capsules.get(capsule_id),
+                    {Status.running},
+                    _RESUME_INTERVAL,
+                )
+            return info
 
     def _instance_get_info(self) -> CapsuleModel:
         """Get current info for this capsule."""
@@ -311,43 +377,30 @@ class Capsule:
         """
         self._client.capsules.ping(self._id)
 
-    _POLL_INTERVALS: dict[Status, float] = {
-        Status.starting: 0.5,
-        Status.resuming: 0.5,
-        Status.pausing: 2.0,
-        Status.stopping: 1.0,
-    }
+    def _wait_for_status(
+        self,
+        targets: set[Status],
+        interval: float,
+        timeout: float = _DEFAULT_WAIT_TIMEOUT,
+    ) -> CapsuleModel:
+        info = _poll_until(
+            lambda: self._client.capsules.get(self._id),
+            targets,
+            interval,
+            timeout,
+            fail_on={Status.error, Status.stopped, Status.missing} - targets,
+        )
+        self._info = info
+        return info
 
-    def wait_ready(self, timeout: float = 30) -> None:
-        """Block until the capsule status is ``running``.
-
-        Polling interval adapts to the current transient status:
-        0.5 s for starting/resuming, 2 s for pausing, 1 s for stopping.
-
-        Args:
-            timeout (float): Maximum seconds to wait. Defaults to ``30``.
+    def wait_ready(self, timeout: float = _DEFAULT_WAIT_TIMEOUT) -> None:
+        """Block until capsule status is ``running``.
 
         Raises:
-            TimeoutError: If the capsule does not reach ``running`` state
-                within ``timeout`` seconds.
-            RuntimeError: If the capsule enters an error, stopped, or paused
-                state while waiting.
+            TimeoutError: If capsule does not reach ``running`` within ``timeout``.
+            RuntimeError: If capsule enters error/stopped/missing while waiting.
         """
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            info = self._client.capsules.get(self._id)
-            if info.status == Status.running:
-                self._info = info
-                return
-            if info.status in (Status.error, Status.stopped):
-                raise RuntimeError(f"Capsule entered {info.status} state while waiting")
-            if info.status == Status.paused:
-                self._client.capsules.resume(self._id)
-            interval = (
-                self._POLL_INTERVALS.get(info.status, 0.5) if info.status else 0.5
-            )
-            time.sleep(interval)
-        raise TimeoutError(f"Capsule {self._id} did not become ready within {timeout}s")
+        self._wait_for_status({Status.running}, _START_INTERVAL, timeout)
 
     def is_running(self) -> bool:
         """Check whether the capsule is currently running.

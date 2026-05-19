@@ -1,6 +1,5 @@
 from wrenn.models._generated import (
     APIKeyResponse,
-    AuthResponse,
     Capsule,
     CreateAPIKeyRequest,
     CreateCapsuleRequest,
@@ -34,7 +33,6 @@ from wrenn.models._generated import (
 
 __all__ = [
     "APIKeyResponse",
-    "AuthResponse",
     "CreateAPIKeyRequest",
     "CreateHostRequest",
     "CreateHostResponse",

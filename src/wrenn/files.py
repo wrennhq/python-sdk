@@ -9,6 +9,36 @@ from wrenn.exceptions import WrennNotFoundError, _raise_for_status, handle_respo
 from wrenn.models import FileEntry, ListDirResponse, MakeDirResponse
 
 
+def _is_already_exists(resp: httpx.Response) -> bool:
+    """Detect server's already-exists reply across status codes / code strings.
+
+    Server may return 409 with code "conflict"/"already_exists" or wrap
+    "already_exists" inside an "internal" 500 message.
+    """
+    if resp.status_code < 400:
+        return False
+    try:
+        body = resp.json()
+    except Exception:
+        return False
+    err = body.get("error", {}) if isinstance(body, dict) else {}
+    code = err.get("code", "")
+    msg = err.get("message", "") or ""
+    return code in {"conflict", "already_exists"} or "already_exists" in msg
+
+
+def _find_entry(list_fn, path: str) -> FileEntry | None:
+    parent = os.path.dirname(path)
+    name = os.path.basename(path)
+    try:
+        for entry in list_fn(parent, depth=1):
+            if entry.name == name:
+                return entry
+    except WrennNotFoundError:
+        return None
+    return None
+
+
 class Files:
     """Sync filesystem interface. Accessed via ``capsule.files``."""
 
@@ -118,17 +148,10 @@ class Files:
             f"/v1/capsules/{self._capsule_id}/files/mkdir",
             json={"path": path},
         )
-        if resp.status_code == 409:
-            try:
-                body = resp.json()
-                if body.get("error", {}).get("code") == "conflict":
-                    parent = os.path.dirname(path)
-                    name = os.path.basename(path)
-                    for entry in self.list(parent, depth=1):
-                        if entry.name == name:
-                            return entry
-            except Exception:
-                pass
+        if _is_already_exists(resp):
+            existing = _find_entry(self.list, path)
+            if existing is not None:
+                return existing
         parsed = MakeDirResponse.model_validate(handle_response(resp))
         if parsed.entry is None:
             raise RuntimeError("mkdir response missing entry")
@@ -315,17 +338,12 @@ class AsyncFiles:
             f"/v1/capsules/{self._capsule_id}/files/mkdir",
             json={"path": path},
         )
-        if resp.status_code == 409:
-            try:
-                body = resp.json()
-                if body.get("error", {}).get("code") == "conflict":
-                    parent = os.path.dirname(path)
-                    name = os.path.basename(path)
-                    for entry in await self.list(parent, depth=1):
-                        if entry.name == name:
-                            return entry
-            except Exception:
-                pass
+        if _is_already_exists(resp):
+            parent = os.path.dirname(path)
+            name = os.path.basename(path)
+            for entry in await self.list(parent, depth=1):
+                if entry.name == name:
+                    return entry
         parsed = MakeDirResponse.model_validate(handle_response(resp))
         if parsed.entry is None:
             raise RuntimeError("mkdir response missing entry")
