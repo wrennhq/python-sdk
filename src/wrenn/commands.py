@@ -12,6 +12,11 @@ import httpx_ws
 
 from wrenn.exceptions import handle_response
 
+# Both signal a terminated WebSocket: ``WebSocketDisconnect`` is a clean close,
+# ``WebSocketNetworkError`` an abrupt one. The Wrenn server closes exec/process
+# streams abruptly, so iterators must treat either as end-of-stream.
+_WS_CLOSED = (httpx_ws.WebSocketDisconnect, httpx_ws.WebSocketNetworkError)
+
 
 @dataclass
 class CommandResult:
@@ -271,7 +276,7 @@ class Commands:
                     yield event
                     if event.type in ("exit", "error"):
                         break
-                except httpx_ws.WebSocketDisconnect:
+                except _WS_CLOSED:
                     break
 
     def stream(
@@ -306,7 +311,7 @@ class Commands:
                     yield event
                     if event.type in ("exit", "error"):
                         break
-                except httpx_ws.WebSocketDisconnect:
+                except _WS_CLOSED:
                     break
 
 
@@ -462,7 +467,7 @@ class AsyncCommands:
                     yield event
                     if event.type in ("exit", "error"):
                         break
-            except httpx_ws.WebSocketDisconnect:
+            except _WS_CLOSED:
                 pass
 
     async def stream(
@@ -497,5 +502,5 @@ class AsyncCommands:
                     yield event
                     if event.type in ("exit", "error"):
                         break
-            except httpx_ws.WebSocketDisconnect:
+            except _WS_CLOSED:
                 pass

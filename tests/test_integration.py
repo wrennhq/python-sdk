@@ -15,17 +15,6 @@ pytestmark = pytest.mark.integration
 _env_loaded = False
 
 
-def _wait_for_pid_dead(capsule: Capsule, pid: int, timeout: float = 5.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        result = capsule.commands.run(f"ps -p {pid} -o stat= 2>/dev/null || true")
-        state = result.stdout.strip()
-        if not state or state.startswith("Z"):
-            return True
-        time.sleep(0.2)
-    return False
-
-
 def _ensure_env() -> None:
     global _env_loaded
     if _env_loaded:
@@ -229,7 +218,14 @@ class TestCommands:
     def test_kill_process(self):
         handle = self.capsule.commands.run("sleep 30", background=True)
         self.capsule.commands.kill(handle.pid)
-        assert _wait_for_pid_dead(self.capsule, handle.pid)
+        # Registry prune runs asynchronously after the process end event,
+        # so poll rather than asserting on a zero-delay list().
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if handle.pid not in [p.pid for p in self.capsule.commands.list()]:
+                break
+            time.sleep(0.2)
+        assert handle.pid not in [p.pid for p in self.capsule.commands.list()]
 
     def test_run_duration_ms(self):
         result = self.capsule.commands.run("sleep 1")

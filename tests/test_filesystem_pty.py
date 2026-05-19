@@ -341,6 +341,39 @@ class TestPtySessionIteration:
         assert events == []
 
 
+class TestPtySessionPong:
+    def test_ping_triggers_pong(self):
+        ws = MagicMock()
+        ws.receive_text.side_effect = [
+            json.dumps({"type": "ping"}),
+            json.dumps({"type": "exit", "exit_code": 0}),
+        ]
+        session = PtySession(ws, "cl-abc")
+        events = list(session)
+        assert events[0].type == PtyEventType.ping
+        sent = [json.loads(c[0][0]) for c in ws.send_text.call_args_list]
+        assert {"type": "pong"} in sent
+
+    def test_no_pong_without_ping(self):
+        ws = MagicMock()
+        ws.receive_text.side_effect = [
+            json.dumps({"type": "output", "data": ""}),
+            json.dumps({"type": "exit", "exit_code": 0}),
+        ]
+        session = PtySession(ws, "cl-abc")
+        list(session)
+        sent = [json.loads(c[0][0]) for c in ws.send_text.call_args_list]
+        assert {"type": "pong"} not in sent
+
+    def test_send_pong_swallows_closed_ws(self):
+        import httpx_ws
+
+        ws = MagicMock()
+        ws.send_text.side_effect = httpx_ws.WebSocketNetworkError()
+        session = PtySession(ws, "cl-abc")
+        session._send_pong()  # must not raise
+
+
 class TestPtySessionContextManager:
     def test_exit_kills_and_closes(self):
         ws = MagicMock()
@@ -449,6 +482,28 @@ class TestAsyncPtySession:
         assert sent["type"] == "start"
         assert sent["cmd"] == "/bin/zsh"
         assert sent["cols"] == 100
+
+    @pytest.mark.asyncio
+    async def test_async_ping_triggers_pong(self):
+        ws = AsyncMock()
+        ws.receive_text.side_effect = [
+            json.dumps({"type": "ping"}),
+            json.dumps({"type": "exit", "exit_code": 0}),
+        ]
+        session = AsyncPtySession(ws, "cl-abc")
+        events = [e async for e in session]
+        assert events[0].type == PtyEventType.ping
+        sent = [json.loads(c[0][0]) for c in ws.send_text.call_args_list]
+        assert {"type": "pong"} in sent
+
+    @pytest.mark.asyncio
+    async def test_async_send_pong_swallows_closed_ws(self):
+        import httpx_ws
+
+        ws = AsyncMock()
+        ws.send_text.side_effect = httpx_ws.WebSocketNetworkError()
+        session = AsyncPtySession(ws, "cl-abc")
+        await session._send_pong()  # must not raise
 
     @pytest.mark.asyncio
     async def test_async_iteration(self):
