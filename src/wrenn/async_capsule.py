@@ -18,7 +18,7 @@ from wrenn.capsule import (
     _RESUME_INTERVAL,
     _START_INTERVAL,
     _DualMethod,
-    _build_proxy_url,
+    _build_http_proxy_url,
 )
 from wrenn.client import AsyncWrennClient
 from wrenn.commands import AsyncCommands
@@ -423,16 +423,18 @@ class AsyncCapsule:
     # ── Proxy helpers ───────────────────────────────────────────
 
     def get_url(self, port: int) -> str:
-        """Get the proxy URL for a port exposed inside this capsule.
+        """Get the HTTP proxy URL for a port exposed inside this capsule.
 
         Args:
             port (int): Port number to proxy.
 
         Returns:
-            str: A ``wss://`` (or ``ws://``) URL that proxies to the given
-            port inside the capsule.
+            str: A ``https://`` (or ``http://``) URL that proxies HTTP
+            requests to the given port inside the capsule. For raw
+            WebSocket access, see the lower-level ``_build_proxy_url``
+            helper or the ``pty()`` API.
         """
-        return _build_proxy_url(self._client._base_url, self._id, port)
+        return _build_http_proxy_url(self._client._base_url, self._id, port)
 
     # ── Snapshots ───────────────────────────────────────────────
 

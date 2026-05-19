@@ -199,7 +199,8 @@ class Files:
             f"/v1/capsules/{self._capsule_id}/files/stream/write",
             content=_multipart(),
             headers={
-                "Content-Type": f"multipart/form-data; boundary={boundary.decode('utf-8')}"
+                "Content-Type": f"multipart/form-data; boundary={boundary.decode('utf-8')}",
+                "Transfer-Encoding": "chunked",
             },
         )
         _raise_for_status(resp)
@@ -392,7 +393,8 @@ class AsyncFiles:
             f"/v1/capsules/{self._capsule_id}/files/stream/write",
             content=_multipart(),
             headers={
-                "Content-Type": f"multipart/form-data; boundary={boundary.decode('utf-8')}"
+                "Content-Type": f"multipart/form-data; boundary={boundary.decode('utf-8')}",
+                "Transfer-Encoding": "chunked",
             },
         )
         _raise_for_status(resp)

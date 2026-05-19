@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -10,7 +9,8 @@ import httpx
 import httpx_ws
 
 from wrenn.capsule import Capsule as BaseCapsule
-from wrenn.capsule import _build_proxy_url
+from wrenn.capsule import _build_http_proxy_url
+from wrenn.code_runner._protocol import build_execute_request, build_ws_url
 from wrenn.code_runner.models import (
     Execution,
     ExecutionError,
@@ -138,11 +138,7 @@ class Capsule(BaseCapsule):
 
     def _get_proxy_client(self) -> httpx.Client:
         if self._proxy_client is None:
-            url = (
-                _build_proxy_url(self._client._base_url, self._id, 8888)
-                .replace("ws://", "http://")
-                .replace("wss://", "https://")
-            )
+            url = _build_http_proxy_url(self._client._base_url, self._id, 8888)
             self._proxy_client = httpx.Client(
                 base_url=url,
                 headers={"X-API-Key": self._client._api_key},
@@ -194,36 +190,6 @@ class Capsule(BaseCapsule):
             f"Jupyter not available within {jupyter_timeout}s: {last_exc}"
         )
 
-    def _jupyter_ws_url(self, kernel_id: str) -> str:
-        proxy = _build_proxy_url(self._client._base_url, self._id, 8888)
-        return f"{proxy}/api/kernels/{kernel_id}/channels"
-
-    @staticmethod
-    def _jupyter_execute_request(code: str) -> dict:
-        msg_id = str(uuid.uuid4())
-        return {
-            "header": {
-                "msg_id": msg_id,
-                "msg_type": "execute_request",
-                "username": "wrenn-sdk",
-                "session": str(uuid.uuid4()),
-                "date": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-                "version": "5.3",
-            },
-            "parent_header": {},
-            "metadata": {},
-            "content": {
-                "code": code,
-                "silent": False,
-                "store_history": True,
-                "user_expressions": {},
-                "allow_stdin": False,
-                "stop_on_error": True,
-            },
-            "buffers": [],
-            "channel": "shell",
-        }
-
     def run_code(
         self,
         code: str,
@@ -265,24 +231,42 @@ class Capsule(BaseCapsule):
                 "non-Python kernelspec."
             )
         kernel_id = self._ensure_kernel(jupyter_timeout=jupyter_timeout)
-        ws_url = self._jupyter_ws_url(kernel_id)
+        ws_url = build_ws_url(self._client._base_url, self._id, kernel_id)
 
-        msg = self._jupyter_execute_request(code)
+        msg = build_execute_request(code)
         msg_id = msg["header"]["msg_id"]
 
         execution = Execution()
         deadline = time.monotonic() + timeout
         headers = {"X-API-Key": self._client._api_key}
+        saw_idle = False
+
+        def _emit_error(err: ExecutionError) -> None:
+            execution.error = err
+            if on_error is not None:
+                on_error(err)
 
         with httpx_ws.connect_ws(ws_url, headers=headers) as ws:  # type: httpx_ws.WebSocketSession
             ws.send_text(json.dumps(msg))
-            while time.monotonic() < deadline:
+            while True:
                 time_left = deadline - time.monotonic()
                 if time_left <= 0:
                     break
                 try:
                     data = ws.receive_json(timeout=time_left)
-                except Exception:
+                except TimeoutError:
+                    break
+                except (
+                    httpx_ws.WebSocketDisconnect,
+                    httpx_ws.WebSocketNetworkError,
+                ) as exc:
+                    execution.timed_out = True
+                    _emit_error(
+                        ExecutionError(
+                            name="Disconnected",
+                            value=f"kernel WebSocket closed: {exc}",
+                        )
+                    )
                     break
                 if not data:
                     break
@@ -315,16 +299,25 @@ class Capsule(BaseCapsule):
                     if on_result is not None:
                         on_result(result)
                 elif msg_type == "error":
-                    err = ExecutionError(
-                        name=content.get("ename", ""),
-                        value=content.get("evalue", ""),
-                        traceback="\n".join(content.get("traceback", [])),
+                    _emit_error(
+                        ExecutionError(
+                            name=content.get("ename", ""),
+                            value=content.get("evalue", ""),
+                            traceback="\n".join(content.get("traceback", [])),
+                        )
                     )
-                    execution.error = err
-                    if on_error is not None:
-                        on_error(err)
                 elif msg_type == "status" and content.get("execution_state") == "idle":
+                    saw_idle = True
                     break
+
+        if not saw_idle and execution.error is None:
+            execution.timed_out = True
+            _emit_error(
+                ExecutionError(
+                    name="Timeout",
+                    value=f"run_code exceeded {timeout}s",
+                )
+            )
 
         return execution
 

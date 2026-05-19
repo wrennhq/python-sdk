@@ -362,12 +362,14 @@ class TestEnsureKernel:
                 c._ensure_kernel(jupyter_timeout=0.01)
 
 
-# ───────────────────────── _jupyter_execute_request ─────────────────────────
+# ───────────────────────── build_execute_request ─────────────────────────
 
 
 class TestJupyterRequest:
     def test_structure(self):
-        msg = Capsule._jupyter_execute_request("print(1)")
+        from wrenn.code_runner._protocol import build_execute_request
+
+        msg = build_execute_request("print(1)")
         assert msg["channel"] == "shell"
         assert msg["header"]["msg_type"] == "execute_request"
         assert msg["content"]["code"] == "print(1)"
@@ -379,8 +381,10 @@ class TestJupyterRequest:
         assert len(msg["header"]["msg_id"]) == 36
 
     def test_unique_msg_id_per_call(self):
-        a = Capsule._jupyter_execute_request("x")
-        b = Capsule._jupyter_execute_request("x")
+        from wrenn.code_runner._protocol import build_execute_request
+
+        a = build_execute_request("x")
+        b = build_execute_request("x")
         assert a["header"]["msg_id"] != b["header"]["msg_id"]
 
 
@@ -397,7 +401,12 @@ def _wrap(msg_type: str, parent_id: str, content: dict) -> dict:
 
 
 class _FakeWS:
-    """Minimal sync httpx_ws-shaped fake."""
+    """Minimal sync httpx_ws-shaped fake.
+
+    If ``frames_factory`` yields an ``Exception`` instance, the fake
+    raises it instead of returning the value — useful for testing
+    disconnect / network-error paths.
+    """
 
     def __init__(self, frames_factory):
         self._frames_factory = frames_factory
@@ -418,9 +427,12 @@ class _FakeWS:
     def receive_json(self, timeout: float = 0):
         assert self._iter is not None
         try:
-            return next(self._iter)
+            nxt = next(self._iter)
         except StopIteration:
             raise TimeoutError("no more frames")
+        if isinstance(nxt, BaseException):
+            raise nxt
+        return nxt
 
 
 class _FakeAsyncWS:
@@ -438,12 +450,15 @@ class _FakeAsyncWS:
         parent_id = json.loads(s)["header"]["msg_id"]
         self._iter = iter(self._frames_factory(parent_id))
 
-    async def receive_json(self, timeout: float = 0):
+    async def receive_json(self):
         assert self._iter is not None
         try:
-            return next(self._iter)
+            nxt = next(self._iter)
         except StopIteration:
             raise TimeoutError("no more frames")
+        if isinstance(nxt, BaseException):
+            raise nxt
+        return nxt
 
 
 class TestRunCode:
@@ -630,3 +645,243 @@ class TestAsyncCtorFailureSafe:
         c = AsyncCapsule.__new__(AsyncCapsule)
         # __del__ should be safe even with no attrs.
         c.__del__()
+
+
+# ───────────────────────── run_code error-path regressions (B2) ─────────────
+
+
+class TestRunCodeErrorPaths:
+    """Sync run_code timeout / disconnect / unexpected-exception behavior."""
+
+    def _ready(self):
+        return TestRunCode()._make_ready()
+
+    def test_timeout_when_no_idle_received(self):
+        c = self._ready()
+
+        def frames(pid):
+            yield _wrap("stream", pid, {"name": "stdout", "text": "partial\n"})
+            # No idle frame; loop exits via StopIteration → TimeoutError.
+
+        errors = []
+        with patch(
+            "wrenn.code_runner.capsule.httpx_ws.connect_ws",
+            return_value=_FakeWS(frames),
+        ):
+            ex = c.run_code("x", on_error=errors.append)
+        assert ex.timed_out is True
+        assert ex.error is not None
+        assert ex.error.name == "Timeout"
+        assert "exceeded" in ex.error.value
+        assert ex.logs.stdout == ["partial\n"]
+        assert len(errors) == 1
+
+    def test_disconnect_sets_disconnected_error(self):
+        c = self._ready()
+        import httpx_ws
+
+        def frames(pid):
+            yield _wrap("stream", pid, {"name": "stdout", "text": "hi\n"})
+            yield httpx_ws.WebSocketDisconnect(code=1000, reason="bye")
+
+        errors = []
+        with patch(
+            "wrenn.code_runner.capsule.httpx_ws.connect_ws",
+            return_value=_FakeWS(frames),
+        ):
+            ex = c.run_code("x", on_error=errors.append)
+        assert ex.timed_out is True
+        assert ex.error is not None
+        assert ex.error.name == "Disconnected"
+        assert ex.logs.stdout == ["hi\n"]
+        assert len(errors) == 1
+
+    def test_unexpected_exception_propagates(self):
+        c = self._ready()
+
+        def frames(pid):
+            yield RuntimeError("WS broken in unexpected way")
+
+        with patch(
+            "wrenn.code_runner.capsule.httpx_ws.connect_ws",
+            return_value=_FakeWS(frames),
+        ):
+            with pytest.raises(RuntimeError, match="WS broken"):
+                c.run_code("x")
+
+    def test_clean_exit_does_not_set_timed_out(self):
+        c = self._ready()
+
+        def frames(pid):
+            yield _wrap("status", pid, {"execution_state": "idle"})
+
+        with patch(
+            "wrenn.code_runner.capsule.httpx_ws.connect_ws",
+            return_value=_FakeWS(frames),
+        ):
+            ex = c.run_code("pass")
+        assert ex.timed_out is False
+        assert ex.error is None
+
+
+# ───────────────────────── Async run_code parity ──────────────────────────
+
+
+class TestAsyncRunCodeErrorPaths:
+    def _ready(self):
+        return TestAsyncRunCode()._make_ready()
+
+    @pytest.mark.asyncio
+    async def test_async_timeout_when_no_idle(self):
+        c = self._ready()
+
+        def frames(pid):
+            yield _wrap("stream", pid, {"name": "stdout", "text": "partial\n"})
+
+        errors = []
+        with patch(
+            "wrenn.code_runner.async_capsule.httpx_ws.aconnect_ws",
+            return_value=_FakeAsyncWS(frames),
+        ):
+            ex = await c.run_code("x", on_error=errors.append)
+        assert ex.timed_out is True
+        assert ex.error is not None
+        assert ex.error.name == "Timeout"
+        assert ex.logs.stdout == ["partial\n"]
+        assert len(errors) == 1
+        await c.close()
+
+    @pytest.mark.asyncio
+    async def test_async_disconnect_sets_disconnected_error(self):
+        c = self._ready()
+        import httpx_ws
+
+        def frames(pid):
+            yield httpx_ws.WebSocketNetworkError("network blip")
+
+        errors = []
+        with patch(
+            "wrenn.code_runner.async_capsule.httpx_ws.aconnect_ws",
+            return_value=_FakeAsyncWS(frames),
+        ):
+            ex = await c.run_code("x", on_error=errors.append)
+        assert ex.timed_out is True
+        assert ex.error is not None
+        assert ex.error.name == "Disconnected"
+        assert len(errors) == 1
+        await c.close()
+
+    @pytest.mark.asyncio
+    async def test_async_unexpected_exception_propagates(self):
+        c = self._ready()
+
+        def frames(pid):
+            yield RuntimeError("unexpected WS death")
+
+        with patch(
+            "wrenn.code_runner.async_capsule.httpx_ws.aconnect_ws",
+            return_value=_FakeAsyncWS(frames),
+        ):
+            with pytest.raises(RuntimeError, match="unexpected WS"):
+                await c.run_code("x")
+        await c.close()
+
+    @pytest.mark.asyncio
+    async def test_async_unsupported_language_raises(self):
+        c = self._ready()
+        with pytest.raises(ValueError, match="not supported"):
+            await c.run_code("console.log('x')", language="javascript")
+        await c.close()
+
+
+# ───────────────────────── Async _ensure_kernel parity ───────────────────────
+
+
+@respx.mock
+def _make_async_capsule(capsule_id: str = "sb-1") -> AsyncCapsule:
+    """Construct an AsyncCapsule without going through ``create()``."""
+    from wrenn.client import AsyncWrennClient
+    from wrenn.models import Capsule as CapsuleModel
+
+    client = AsyncWrennClient(api_key=API_KEY, base_url=BASE)
+    info = CapsuleModel(id=capsule_id)
+    return AsyncCapsule(_capsule_id=capsule_id, _client=client, _info=info)
+
+
+class TestAsyncEnsureKernel:
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_async_creates_kernel_when_none_exist(self):
+        c = _make_async_capsule()
+        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        list_route = respx.get(f"{proxy_base}/api/kernels").respond(200, json=[])
+        create_route = respx.post(f"{proxy_base}/api/kernels").respond(
+            201, json={"id": "k-new", "name": "wrenn"}
+        )
+        kid = await c._ensure_kernel()
+        assert kid == "k-new"
+        body = json.loads(create_route.calls[0].request.content)
+        assert body == {"name": "wrenn"}
+        assert list_route.called
+        await c.close()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_async_reuses_existing_wrenn_kernel(self):
+        c = _make_async_capsule()
+        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        respx.get(f"{proxy_base}/api/kernels").respond(
+            200,
+            json=[
+                {"id": "k-other", "name": "python3"},
+                {"id": "k-wrenn", "name": "wrenn"},
+            ],
+        )
+        create = respx.post(f"{proxy_base}/api/kernels").respond(201, json={})
+        kid = await c._ensure_kernel()
+        assert kid == "k-wrenn"
+        assert not create.called
+        await c.close()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_async_retries_on_5xx_then_succeeds(self):
+        c = _make_async_capsule()
+        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        responses = [
+            httpx.Response(503),
+            httpx.Response(200, json=[{"id": "k-1", "name": "wrenn"}]),
+        ]
+        respx.get(f"{proxy_base}/api/kernels").mock(side_effect=responses)
+        with patch("asyncio.sleep") as sleep_mock:
+
+            async def _noop(_s):
+                return None
+
+            sleep_mock.side_effect = _noop
+            kid = await c._ensure_kernel(jupyter_timeout=5)
+        assert kid == "k-1"
+        await c.close()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_async_raises_on_4xx(self):
+        c = _make_async_capsule()
+        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        respx.get(f"{proxy_base}/api/kernels").respond(401)
+        with pytest.raises(httpx.HTTPStatusError):
+            await c._ensure_kernel(jupyter_timeout=2)
+        await c.close()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_async_caches_kernel_id(self):
+        c = _make_async_capsule()
+        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        route = respx.get(f"{proxy_base}/api/kernels").respond(
+            200, json=[{"id": "k-1", "name": "wrenn"}]
+        )
+        await c._ensure_kernel()
+        await c._ensure_kernel()
+        assert route.call_count == 1
+        await c.close()

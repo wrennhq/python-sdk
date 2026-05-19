@@ -709,7 +709,8 @@ Connect to a running background process and stream its output.
 #### stream
 
 ```python
-def stream(cmd: str, args: list[str] | None = None) -> Iterator[StreamEvent]
+def stream(cmd: str,
+           args: builtins.list[str] | None = None) -> Iterator[StreamEvent]
 ```
 
 Execute a command via WebSocket, streaming output as events.
@@ -836,8 +837,9 @@ Connect to a running background process and stream its output.
 #### stream
 
 ```python
-async def stream(cmd: str,
-                 args: list[str] | None = None) -> AsyncIterator[StreamEvent]
+async def stream(
+        cmd: str,
+        args: builtins.list[str] | None = None) -> AsyncIterator[StreamEvent]
 ```
 
 Execute a command via WebSocket, streaming output as events.
@@ -1271,407 +1273,28 @@ in memory.
 
 # wrenn.code\_interpreter.models
 
-<a id="wrenn.code_interpreter.models.ExecutionError"></a>
-
-## ExecutionError Objects
-
-```python
-@dataclass
-class ExecutionError()
-```
-
-Error raised during code execution.
-
-**Attributes**:
-
-- `name` - Exception class name (e.g. ``"NameError"``).
-- `value` - Exception message.
-- `traceback` - Full traceback string.
-
-<a id="wrenn.code_interpreter.models.Logs"></a>
-
-## Logs Objects
-
-```python
-@dataclass
-class Logs()
-```
-
-Captured stdout/stderr streams.
-
-Each element in the list is one chunk of text as it arrived from
-the kernel.
-
-<a id="wrenn.code_interpreter.models.Result"></a>
-
-## Result Objects
-
-```python
-@dataclass
-class Result()
-```
-
-A single rich output from code execution.
-
-Jupyter cells can produce multiple outputs — one ``execute_result``
-(the expression value) and zero or more ``display_data`` messages
-(from ``plt.show()``, ``display()``, etc.).  Each becomes a
-``Result``.
-
-Known MIME types are unpacked into named attributes; anything else
-lands in :pyattr:`extra`.
-
-<a id="wrenn.code_interpreter.models.Result.text"></a>
-
-#### text
-
-``text/plain`` representation.
-
-<a id="wrenn.code_interpreter.models.Result.html"></a>
-
-#### html
-
-``text/html`` representation.
-
-<a id="wrenn.code_interpreter.models.Result.markdown"></a>
-
-#### markdown
-
-``text/markdown`` representation.
-
-<a id="wrenn.code_interpreter.models.Result.svg"></a>
-
-#### svg
-
-``image/svg+xml`` representation.
-
-<a id="wrenn.code_interpreter.models.Result.png"></a>
-
-#### png
-
-``image/png`` — base64-encoded.
-
-<a id="wrenn.code_interpreter.models.Result.jpeg"></a>
-
-#### jpeg
-
-``image/jpeg`` — base64-encoded.
-
-<a id="wrenn.code_interpreter.models.Result.pdf"></a>
-
-#### pdf
-
-``application/pdf`` — base64-encoded.
-
-<a id="wrenn.code_interpreter.models.Result.latex"></a>
-
-#### latex
-
-``text/latex`` representation.
-
-<a id="wrenn.code_interpreter.models.Result.json"></a>
-
-#### json
-
-``application/json`` representation.
-
-<a id="wrenn.code_interpreter.models.Result.javascript"></a>
-
-#### javascript
-
-``application/javascript`` representation.
-
-<a id="wrenn.code_interpreter.models.Result.extra"></a>
-
-#### extra
-
-MIME types not covered by the named fields above.
-
-<a id="wrenn.code_interpreter.models.Result.is_main_result"></a>
-
-#### is\_main\_result
-
-``True`` when this came from an ``execute_result`` message
-(i.e. the value of the last expression in the cell).  ``False``
-for ``display_data`` outputs.
-
-<a id="wrenn.code_interpreter.models.Result.from_bundle"></a>
-
-#### from\_bundle
-
-```python
-@classmethod
-def from_bundle(cls,
-                bundle: dict[str, str],
-                *,
-                is_main_result: bool = False) -> Result
-```
-
-Build a ``Result`` from a Jupyter MIME bundle dict.
-
-<a id="wrenn.code_interpreter.models.Result.formats"></a>
-
-#### formats
-
-```python
-def formats() -> list[str]
-```
-
-Return names of non-``None`` MIME-type fields.
-
-<a id="wrenn.code_interpreter.models.Execution"></a>
-
-## Execution Objects
-
-```python
-@dataclass
-class Execution()
-```
-
-Complete result of a ``run_code`` call.
-
-**Attributes**:
-
-- `results` - All rich outputs produced by the cell — charts, tables,
-  images, expression values, etc.
-- `logs` - Captured stdout/stderr text.
-- `error` - Populated when the cell raised an exception.
-- `execution_count` - Jupyter execution counter (the ``[N]`` number).
-
-<a id="wrenn.code_interpreter.models.Execution.text"></a>
-
-#### text
-
-```python
-@property
-def text() -> str | None
-```
-
-Convenience — ``text/plain`` of the main ``execute_result``,
-or ``None`` if the cell had no expression value.
+Deprecated — use :mod:`wrenn.code_runner.models`.
 
 <a id="wrenn.code_interpreter.async_capsule"></a>
 
 # wrenn.code\_interpreter.async\_capsule
 
-<a id="wrenn.code_interpreter.async_capsule.AsyncCapsule"></a>
-
-## AsyncCapsule Objects
-
-```python
-class AsyncCapsule(BaseAsyncCapsule)
-```
-
-Async code interpreter capsule with ``run_code`` support.
-
-Uses ``code-runner-beta`` template by default::
-
-from wrenn.code_interpreter import AsyncCapsule
-
-capsule = await AsyncCapsule.create()
-result = await capsule.run_code("print('hello')")
-
-<a id="wrenn.code_interpreter.async_capsule.AsyncCapsule.create"></a>
-
-#### create
-
-```python
-@classmethod
-async def create(cls,
-                 template: str | None = None,
-                 vcpus: int | None = None,
-                 memory_mb: int | None = None,
-                 timeout: int | None = None,
-                 *,
-                 wait: bool = False,
-                 api_key: str | None = None,
-                 base_url: str | None = None) -> AsyncCapsule
-```
-
-Create a new async code interpreter capsule.
-
-**Arguments**:
-
-- `template` _str | None_ - Template to boot from. Defaults to
-  ``"code-runner-beta"``.
-- `vcpus` _int | None_ - Number of virtual CPUs.
-- `memory_mb` _int | None_ - Memory in MiB.
-- `timeout` _int | None_ - Inactivity TTL in seconds before auto-pause.
-- `wait` _bool_ - Await until the capsule reaches ``running`` status.
-- `api_key` _str | None_ - Wrenn API key. Falls back to
-  ``WRENN_API_KEY`` env var.
-- `base_url` _str | None_ - API base URL override.
-  
-
-**Returns**:
-
-- `AsyncCapsule` - A new async code interpreter capsule instance.
-
-<a id="wrenn.code_interpreter.async_capsule.AsyncCapsule.run_code"></a>
-
-#### run\_code
-
-```python
-async def run_code(
-        code: str,
-        language: str = "python",
-        timeout: float = 30,
-        jupyter_timeout: float = 30,
-        on_result: Callable[[Result], Any] | None = None,
-        on_stdout: Callable[[str], Any] | None = None,
-        on_stderr: Callable[[str], Any] | None = None,
-        on_error: Callable[[ExecutionError], Any] | None = None) -> Execution
-```
-
-Execute code in a persistent Jupyter kernel (async).
-
-**Arguments**:
-
-- `code` - Code string to execute.
-- `language` - Execution backend language. Currently only ``"python"``.
-- `timeout` - Maximum seconds to wait for execution to complete.
-- `jupyter_timeout` - Maximum seconds to wait for Jupyter to become
-  available.
-- `on_result` - Called for each rich output (charts, images, expression
-  values).
-- `on_stdout` - Called for each stdout chunk.
-- `on_stderr` - Called for each stderr chunk.
-- `on_error` - Called when the cell raises an exception.
-  
-
-**Returns**:
-
-  An :class:`Execution` with ``.results``, ``.logs``, ``.error``,
-  and a convenience ``.text`` property.
+Deprecated — use :mod:`wrenn.code_runner.async_capsule`.
 
 <a id="wrenn.code_interpreter"></a>
 
 # wrenn.code\_interpreter
 
+Deprecated alias for :mod:`wrenn.code_runner`.
+
+Importing from ``wrenn.code_interpreter`` emits a ``FutureWarning``.
+Use ``wrenn.code_runner`` instead.
+
 <a id="wrenn.code_interpreter.capsule"></a>
 
 # wrenn.code\_interpreter.capsule
 
-<a id="wrenn.code_interpreter.capsule.Capsule"></a>
-
-## Capsule Objects
-
-```python
-class Capsule(BaseCapsule)
-```
-
-Code interpreter capsule with ``run_code`` support.
-
-Uses ``code-runner-beta`` template by default::
-
-from wrenn.code_interpreter import Capsule
-
-capsule = Capsule()
-result = capsule.run_code("print('hello')")
-print(result.logs.stdout)  # ["hello\n"]
-
-<a id="wrenn.code_interpreter.capsule.Capsule.__init__"></a>
-
-#### \_\_init\_\_
-
-```python
-def __init__(template: str | None = None,
-             vcpus: int | None = None,
-             memory_mb: int | None = None,
-             timeout: int | None = None,
-             *,
-             api_key: str | None = None,
-             base_url: str | None = None,
-             **kwargs) -> None
-```
-
-Create a code interpreter capsule.
-
-**Arguments**:
-
-- `template` _str | None_ - Template to boot from. Defaults to
-  ``"code-runner-beta"``.
-- `vcpus` _int | None_ - Number of virtual CPUs.
-- `memory_mb` _int | None_ - Memory in MiB.
-- `timeout` _int | None_ - Inactivity TTL in seconds before auto-pause.
-- `api_key` _str | None_ - Wrenn API key. Falls back to
-  ``WRENN_API_KEY`` env var.
-- `base_url` _str | None_ - API base URL override.
-
-<a id="wrenn.code_interpreter.capsule.Capsule.create"></a>
-
-#### create
-
-```python
-@classmethod
-def create(cls,
-           template: str | None = None,
-           vcpus: int | None = None,
-           memory_mb: int | None = None,
-           timeout: int | None = None,
-           *,
-           wait: bool = False,
-           api_key: str | None = None,
-           base_url: str | None = None) -> Capsule
-```
-
-Create a new code interpreter capsule.
-
-**Arguments**:
-
-- `template` _str | None_ - Template to boot from. Defaults to
-  ``"code-runner-beta"``.
-- `vcpus` _int | None_ - Number of virtual CPUs.
-- `memory_mb` _int | None_ - Memory in MiB.
-- `timeout` _int | None_ - Inactivity TTL in seconds before auto-pause.
-- `wait` _bool_ - Block until the capsule reaches ``running`` status.
-- `api_key` _str | None_ - Wrenn API key. Falls back to
-  ``WRENN_API_KEY`` env var.
-- `base_url` _str | None_ - API base URL override.
-  
-
-**Returns**:
-
-- `Capsule` - A new code interpreter capsule instance.
-
-<a id="wrenn.code_interpreter.capsule.Capsule.run_code"></a>
-
-#### run\_code
-
-```python
-def run_code(
-        code: str,
-        language: str = "python",
-        timeout: float = 30,
-        jupyter_timeout: float = 30,
-        on_result: Callable[[Result], Any] | None = None,
-        on_stdout: Callable[[str], Any] | None = None,
-        on_stderr: Callable[[str], Any] | None = None,
-        on_error: Callable[[ExecutionError], Any] | None = None) -> Execution
-```
-
-Execute code in a persistent Jupyter kernel.
-
-Variables, imports, and function definitions survive across calls.
-
-**Arguments**:
-
-- `code` - Code string to execute.
-- `language` - Execution backend language. Currently only ``"python"``.
-- `timeout` - Maximum seconds to wait for execution to complete.
-- `jupyter_timeout` - Maximum seconds to wait for Jupyter to become
-  available.
-- `on_result` - Called for each rich output (charts, images, expression
-  values).
-- `on_stdout` - Called for each stdout chunk.
-- `on_stderr` - Called for each stderr chunk.
-- `on_error` - Called when the cell raises an exception.
-  
-
-**Returns**:
-
-  An :class:`Execution` with ``.results``, ``.logs``, ``.error``,
-  and a convenience ``.text`` property.
+Deprecated — use :mod:`wrenn.code_runner.capsule`.
 
 <a id="wrenn.exceptions"></a>
 
@@ -1964,25 +1587,15 @@ inactivity TTL is set.
 #### wait\_ready
 
 ```python
-async def wait_ready(timeout: float = 30) -> None
+async def wait_ready(timeout: float = _DEFAULT_WAIT_TIMEOUT) -> None
 ```
 
-Await until the capsule status is ``running``.
-
-Polling interval adapts to the current transient status:
-0.5 s for starting/resuming, 2 s for pausing, 1 s for stopping.
-
-**Arguments**:
-
-- `timeout` _float_ - Maximum seconds to wait. Defaults to ``30``.
-  
+Await until capsule status is ``running``.
 
 **Raises**:
 
-- `TimeoutError` - If the capsule does not reach ``running`` state
-  within ``timeout`` seconds.
-- `RuntimeError` - If the capsule enters an error, stopped, or paused
-  state while waiting.
+- `TimeoutError` - If capsule does not reach ``running`` within ``timeout``.
+- `RuntimeError` - If capsule enters error/stopped/missing while waiting.
 
 <a id="wrenn.async_capsule.AsyncCapsule.is_running"></a>
 
@@ -2032,7 +1645,7 @@ List all capsules belonging to the team.
 ```python
 @asynccontextmanager
 async def pty(cmd: str = "/bin/bash",
-              args: list[str] | None = None,
+              args: builtins.list[str] | None = None,
               cols: int = 80,
               rows: int = 24,
               envs: dict[str, str] | None = None,
@@ -2094,7 +1707,7 @@ Reconnect to an existing PTY session by tag.
 def get_url(port: int) -> str
 ```
 
-Get the proxy URL for a port exposed inside this capsule.
+Get the HTTP proxy URL for a port exposed inside this capsule.
 
 **Arguments**:
 
@@ -2103,8 +1716,10 @@ Get the proxy URL for a port exposed inside this capsule.
 
 **Returns**:
 
-- `str` - A ``wss://`` (or ``ws://``) URL that proxies to the given
-  port inside the capsule.
+- `str` - A ``https://`` (or ``http://``) URL that proxies HTTP
+  requests to the given port inside the capsule. For raw
+  WebSocket access, see the lower-level ``_build_proxy_url``
+  helper or the ``pty()`` API.
 
 <a id="wrenn.async_capsule.AsyncCapsule.create_snapshot"></a>
 
@@ -2309,6 +1924,18 @@ Send SIGKILL to the PTY process.
 
 # wrenn.models.\_generated
 
+<a id="wrenn.models._generated.SessionResponse"></a>
+
+## SessionResponse Objects
+
+```python
+class SessionResponse(BaseModel)
+```
+
+Returned by login, activate, and switch-team. The actual auth credential
+is the wrenn_sid cookie set on the response. The body carries identity
+data the SPA needs to bootstrap.
+
 <a id="wrenn.models._generated.Peaks"></a>
 
 ## Peaks Objects
@@ -2348,6 +1975,29 @@ class Type2(StrEnum)
 ```
 
 Host type. Regular hosts are shared; BYOC hosts belong to a team.
+
+<a id="wrenn.models._generated.Outcome"></a>
+
+## Outcome Objects
+
+```python
+class Outcome(StrEnum)
+```
+
+Present for action events (capsule.* except state.changed,
+template.snapshot.*). Absent for host.up/down, capsule.state.changed,
+and the connected sentinel.
+
+<a id="wrenn.models._generated.SSEEvent"></a>
+
+## SSEEvent Objects
+
+```python
+class SSEEvent(BaseModel)
+```
+
+Wire format of one SSE message body. The event name (`event:` line) is
+the `kind` and the JSON below is the `data:` line.
 
 <a id="wrenn.models"></a>
 
@@ -2536,25 +2186,15 @@ inactivity TTL is set.
 #### wait\_ready
 
 ```python
-def wait_ready(timeout: float = 30) -> None
+def wait_ready(timeout: float = _DEFAULT_WAIT_TIMEOUT) -> None
 ```
 
-Block until the capsule status is ``running``.
-
-Polling interval adapts to the current transient status:
-0.5 s for starting/resuming, 2 s for pausing, 1 s for stopping.
-
-**Arguments**:
-
-- `timeout` _float_ - Maximum seconds to wait. Defaults to ``30``.
-  
+Block until capsule status is ``running``.
 
 **Raises**:
 
-- `TimeoutError` - If the capsule does not reach ``running`` state
-  within ``timeout`` seconds.
-- `RuntimeError` - If the capsule enters an error, stopped, or paused
-  state while waiting.
+- `TimeoutError` - If capsule does not reach ``running`` within ``timeout``.
+- `RuntimeError` - If capsule enters error/stopped/missing while waiting.
 
 <a id="wrenn.capsule.Capsule.is_running"></a>
 
@@ -2604,7 +2244,7 @@ List all capsules belonging to the team.
 ```python
 @contextmanager
 def pty(cmd: str = "/bin/bash",
-        args: list[str] | None = None,
+        args: builtins.list[str] | None = None,
         cols: int = 80,
         rows: int = 24,
         envs: dict[str, str] | None = None,
@@ -2665,7 +2305,7 @@ Reconnect to an existing PTY session by tag.
 def get_url(port: int) -> str
 ```
 
-Get the proxy URL for a port exposed inside this capsule.
+Get the HTTP proxy URL for a port exposed inside this capsule.
 
 **Arguments**:
 
@@ -2674,8 +2314,10 @@ Get the proxy URL for a port exposed inside this capsule.
 
 **Returns**:
 
-- `str` - A ``wss://`` (or ``ws://``) URL that proxies to the given
-  port inside the capsule.
+- `str` - A ``https://`` (or ``http://``) URL that proxies HTTP
+  requests to the given port inside the capsule. For raw
+  WebSocket access, see the lower-level ``_build_proxy_url``
+  helper or the ``pty()`` API.
 
 <a id="wrenn.capsule.Capsule.create_snapshot"></a>
 
@@ -2699,6 +2341,494 @@ Create a snapshot template from this capsule's current state.
 **Returns**:
 
 - `Template` - The created snapshot template.
+
+<a id="wrenn.code_runner.models"></a>
+
+# wrenn.code\_runner.models
+
+<a id="wrenn.code_runner.models.ExecutionError"></a>
+
+## ExecutionError Objects
+
+```python
+@dataclass
+class ExecutionError()
+```
+
+Error raised during code execution.
+
+**Attributes**:
+
+- `name` - Exception class name (e.g. ``"NameError"``).
+- `value` - Exception message.
+- `traceback` - Full traceback string.
+
+<a id="wrenn.code_runner.models.Logs"></a>
+
+## Logs Objects
+
+```python
+@dataclass
+class Logs()
+```
+
+Captured stdout/stderr streams.
+
+Each element in the list is one chunk of text as it arrived from
+the kernel.
+
+<a id="wrenn.code_runner.models.Result"></a>
+
+## Result Objects
+
+```python
+@dataclass
+class Result()
+```
+
+A single rich output from code execution.
+
+Jupyter cells can produce multiple outputs — one ``execute_result``
+(the expression value) and zero or more ``display_data`` messages
+(from ``plt.show()``, ``display()``, etc.).  Each becomes a
+``Result``.
+
+Known MIME types are unpacked into named attributes; anything else
+lands in :pyattr:`extra`.
+
+<a id="wrenn.code_runner.models.Result.text"></a>
+
+#### text
+
+``text/plain`` representation.
+
+<a id="wrenn.code_runner.models.Result.html"></a>
+
+#### html
+
+``text/html`` representation.
+
+<a id="wrenn.code_runner.models.Result.markdown"></a>
+
+#### markdown
+
+``text/markdown`` representation.
+
+<a id="wrenn.code_runner.models.Result.svg"></a>
+
+#### svg
+
+``image/svg+xml`` representation.
+
+<a id="wrenn.code_runner.models.Result.png"></a>
+
+#### png
+
+``image/png`` — base64-encoded.
+
+<a id="wrenn.code_runner.models.Result.jpeg"></a>
+
+#### jpeg
+
+``image/jpeg`` — base64-encoded.
+
+<a id="wrenn.code_runner.models.Result.gif"></a>
+
+#### gif
+
+``image/gif`` — base64-encoded.
+
+<a id="wrenn.code_runner.models.Result.pdf"></a>
+
+#### pdf
+
+``application/pdf`` — base64-encoded.
+
+<a id="wrenn.code_runner.models.Result.latex"></a>
+
+#### latex
+
+``text/latex`` representation.
+
+<a id="wrenn.code_runner.models.Result.json"></a>
+
+#### json
+
+``application/json`` representation.
+
+<a id="wrenn.code_runner.models.Result.javascript"></a>
+
+#### javascript
+
+``application/javascript`` representation.
+
+<a id="wrenn.code_runner.models.Result.plotly"></a>
+
+#### plotly
+
+``application/vnd.plotly.v1+json`` representation.
+
+<a id="wrenn.code_runner.models.Result.extra"></a>
+
+#### extra
+
+MIME types not covered by the named fields above.
+
+<a id="wrenn.code_runner.models.Result.is_main_result"></a>
+
+#### is\_main\_result
+
+``True`` when this came from an ``execute_result`` message
+(i.e. the value of the last expression in the cell).  ``False``
+for ``display_data`` outputs.
+
+<a id="wrenn.code_runner.models.Result.from_bundle"></a>
+
+#### from\_bundle
+
+```python
+@classmethod
+def from_bundle(cls,
+                bundle: dict[str, str],
+                *,
+                is_main_result: bool = False) -> Result
+```
+
+Build a ``Result`` from a Jupyter MIME bundle dict.
+
+<a id="wrenn.code_runner.models.Result.formats"></a>
+
+#### formats
+
+```python
+def formats() -> list[str]
+```
+
+Return names of non-``None`` MIME-type fields.
+
+<a id="wrenn.code_runner.models.Execution"></a>
+
+## Execution Objects
+
+```python
+@dataclass
+class Execution()
+```
+
+Complete result of a ``run_code`` call.
+
+**Attributes**:
+
+- `results` - All rich outputs produced by the cell — charts, tables,
+  images, expression values, etc.
+- `logs` - Captured stdout/stderr text.
+- `error` - Populated when the cell raised an exception.
+- `execution_count` - Jupyter execution counter (the ``[N]`` number).
+
+<a id="wrenn.code_runner.models.Execution.timed_out"></a>
+
+#### timed\_out
+
+``True`` when execution was cut short by the ``timeout`` parameter
+(or by the kernel WebSocket dropping). Pairs with ``error`` of name
+``"Timeout"`` or ``"Disconnected"``.
+
+<a id="wrenn.code_runner.models.Execution.text"></a>
+
+#### text
+
+```python
+@property
+def text() -> str | None
+```
+
+Convenience — ``text/plain`` of the main ``execute_result``,
+or ``None`` if the cell had no expression value.
+
+<a id="wrenn.code_runner.async_capsule"></a>
+
+# wrenn.code\_runner.async\_capsule
+
+<a id="wrenn.code_runner.async_capsule.AsyncCapsule"></a>
+
+## AsyncCapsule Objects
+
+```python
+class AsyncCapsule(BaseAsyncCapsule)
+```
+
+Async code runner capsule with ``run_code`` support.
+
+Uses ``code-runner-beta`` template and the ``wrenn`` Jupyter
+kernelspec by default::
+
+from wrenn.code_runner import AsyncCapsule
+
+capsule = await AsyncCapsule.create()
+result = await capsule.run_code("print('hello')")
+
+<a id="wrenn.code_runner.async_capsule.AsyncCapsule.create"></a>
+
+#### create
+
+```python
+@classmethod
+async def create(cls,
+                 template: str | None = None,
+                 vcpus: int | None = None,
+                 memory_mb: int | None = None,
+                 timeout: int | None = None,
+                 *,
+                 kernel: str | None = None,
+                 wait: bool = False,
+                 api_key: str | None = None,
+                 base_url: str | None = None) -> AsyncCapsule
+```
+
+Create a new async code runner capsule.
+
+**Arguments**:
+
+- `template` _str | None_ - Template to boot from. Defaults to
+  ``"code-runner-beta"``.
+- `vcpus` _int | None_ - Number of virtual CPUs.
+- `memory_mb` _int | None_ - Memory in MiB.
+- `timeout` _int | None_ - Inactivity TTL in seconds before auto-pause.
+- `kernel` _str | None_ - Jupyter kernelspec name. Defaults to
+  ``"wrenn"``.
+- `wait` _bool_ - Await until the capsule reaches ``running`` status.
+- `api_key` _str | None_ - Wrenn API key. Falls back to
+  ``WRENN_API_KEY`` env var.
+- `base_url` _str | None_ - API base URL override.
+  
+
+**Returns**:
+
+- `AsyncCapsule` - A new async code runner capsule instance.
+
+<a id="wrenn.code_runner.async_capsule.AsyncCapsule.run_code"></a>
+
+#### run\_code
+
+```python
+async def run_code(
+        code: str,
+        language: str = "python",
+        timeout: float = 30,
+        jupyter_timeout: float = 30,
+        on_result: Callable[[Result], Any] | None = None,
+        on_stdout: Callable[[str], Any] | None = None,
+        on_stderr: Callable[[str], Any] | None = None,
+        on_error: Callable[[ExecutionError], Any] | None = None) -> Execution
+```
+
+Execute code in a persistent Jupyter kernel (async).
+
+**Arguments**:
+
+- `code` - Code string to execute.
+- `language` - Execution backend language. Currently only ``"python"``.
+- `timeout` - Maximum seconds to wait for execution to complete.
+- `jupyter_timeout` - Maximum seconds to wait for Jupyter to become
+  available.
+- `on_result` - Called for each rich output (charts, images, expression
+  values).
+- `on_stdout` - Called for each stdout chunk.
+- `on_stderr` - Called for each stderr chunk.
+- `on_error` - Called when the cell raises an exception.
+  
+
+**Returns**:
+
+  An :class:`Execution` with ``.results``, ``.logs``, ``.error``,
+  and a convenience ``.text`` property.
+
+<a id="wrenn.code_runner"></a>
+
+# wrenn.code\_runner
+
+Code runner — execute code in persistent Jupyter kernels.
+
+Uses the ``code-runner-beta`` template and the ``wrenn`` Jupyter
+kernelspec by default.
+
+Example::
+
+from wrenn.code_runner import Capsule
+
+with Capsule(wait=True) as capsule:
+result = capsule.run_code("print('hello')")
+print(result.logs.stdout)
+
+<a id="wrenn.code_runner.capsule"></a>
+
+# wrenn.code\_runner.capsule
+
+<a id="wrenn.code_runner.capsule.Capsule"></a>
+
+## Capsule Objects
+
+```python
+class Capsule(BaseCapsule)
+```
+
+Code runner capsule with ``run_code`` support.
+
+Uses ``code-runner-beta`` template and the ``wrenn`` Jupyter
+kernelspec by default::
+
+from wrenn.code_runner import Capsule
+
+capsule = Capsule()
+result = capsule.run_code("print('hello')")
+print(result.logs.stdout)  # ["hello\n"]
+
+<a id="wrenn.code_runner.capsule.Capsule.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(template: str | None = None,
+             vcpus: int | None = None,
+             memory_mb: int | None = None,
+             timeout: int | None = None,
+             *,
+             kernel: str | None = None,
+             api_key: str | None = None,
+             base_url: str | None = None,
+             **kwargs) -> None
+```
+
+Create a code runner capsule.
+
+**Arguments**:
+
+- `template` _str | None_ - Template to boot from. Defaults to
+  ``"code-runner-beta"``.
+- `vcpus` _int | None_ - Number of virtual CPUs.
+- `memory_mb` _int | None_ - Memory in MiB.
+- `timeout` _int | None_ - Inactivity TTL in seconds before auto-pause.
+- `kernel` _str | None_ - Jupyter kernelspec name. Defaults to
+  ``"wrenn"``.
+- `api_key` _str | None_ - Wrenn API key. Falls back to
+  ``WRENN_API_KEY`` env var.
+- `base_url` _str | None_ - API base URL override.
+
+<a id="wrenn.code_runner.capsule.Capsule.create"></a>
+
+#### create
+
+```python
+@classmethod
+def create(cls,
+           template: str | None = None,
+           vcpus: int | None = None,
+           memory_mb: int | None = None,
+           timeout: int | None = None,
+           *,
+           kernel: str | None = None,
+           wait: bool = False,
+           api_key: str | None = None,
+           base_url: str | None = None) -> Capsule
+```
+
+Create a new code runner capsule.
+
+**Arguments**:
+
+- `template` _str | None_ - Template to boot from. Defaults to
+  ``"code-runner-beta"``.
+- `vcpus` _int | None_ - Number of virtual CPUs.
+- `memory_mb` _int | None_ - Memory in MiB.
+- `timeout` _int | None_ - Inactivity TTL in seconds before auto-pause.
+- `kernel` _str | None_ - Jupyter kernelspec name. Defaults to
+  ``"wrenn"``.
+- `wait` _bool_ - Block until the capsule reaches ``running`` status.
+- `api_key` _str | None_ - Wrenn API key. Falls back to
+  ``WRENN_API_KEY`` env var.
+- `base_url` _str | None_ - API base URL override.
+  
+
+**Returns**:
+
+- `Capsule` - A new code runner capsule instance.
+
+<a id="wrenn.code_runner.capsule.Capsule.run_code"></a>
+
+#### run\_code
+
+```python
+def run_code(
+        code: str,
+        language: str = "python",
+        timeout: float = 30,
+        jupyter_timeout: float = 30,
+        on_result: Callable[[Result], Any] | None = None,
+        on_stdout: Callable[[str], Any] | None = None,
+        on_stderr: Callable[[str], Any] | None = None,
+        on_error: Callable[[ExecutionError], Any] | None = None) -> Execution
+```
+
+Execute code in a persistent Jupyter kernel.
+
+Variables, imports, and function definitions survive across calls.
+
+**Arguments**:
+
+- `code` - Code string to execute.
+- `language` - Execution backend language. Currently only ``"python"``
+  is supported; passing anything else raises ``ValueError``.
+  To target a non-Python kernel, set ``kernel=`` on the
+  capsule constructor.
+- `timeout` - Maximum seconds to wait for execution to complete.
+- `jupyter_timeout` - Maximum seconds to wait for Jupyter to become
+  available.
+- `on_result` - Called for each rich output (charts, images, expression
+  values).
+- `on_stdout` - Called for each stdout chunk.
+- `on_stderr` - Called for each stderr chunk.
+- `on_error` - Called when the cell raises an exception.
+  
+
+**Returns**:
+
+  An :class:`Execution` with ``.results``, ``.logs``, ``.error``,
+  and a convenience ``.text`` property.
+
+<a id="wrenn.code_runner._protocol"></a>
+
+# wrenn.code\_runner.\_protocol
+
+Shared Jupyter protocol helpers used by both sync and async capsules.
+
+Pure functions only — no I/O, no sync/async coupling.
+
+<a id="wrenn.code_runner._protocol.build_execute_request"></a>
+
+#### build\_execute\_request
+
+```python
+def build_execute_request(code: str) -> dict
+```
+
+Build a Jupyter ``execute_request`` message envelope.
+
+**Returns**:
+
+- `dict` - A fully-formed Jupyter shell-channel message ready to be
+  JSON-serialized over the kernel WebSocket. The caller is
+  expected to read ``msg["header"]["msg_id"]`` to correlate
+  responses.
+
+<a id="wrenn.code_runner._protocol.build_ws_url"></a>
+
+#### build\_ws\_url
+
+```python
+def build_ws_url(base_url: str, capsule_id: str, kernel_id: str) -> str
+```
+
+Build the Jupyter kernel WebSocket URL for the given capsule.
 
 <a id="wrenn._config"></a>
 
@@ -3157,16 +3287,6 @@ def build_config_get(key: str,
 ```
 
 Build ``git config --get`` arguments.
-
-<a id="wrenn._git._cmd.build_has_upstream"></a>
-
-#### build\_has\_upstream
-
-```python
-def build_has_upstream() -> list[str]
-```
-
-Build arguments to check if current branch has upstream tracking.
 
 <a id="wrenn._git._cmd.parse_status"></a>
 

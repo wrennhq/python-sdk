@@ -9,10 +9,12 @@ _MIME_MAP: dict[str, str] = {
     "image/svg+xml": "svg",
     "image/png": "png",
     "image/jpeg": "jpeg",
+    "image/gif": "gif",
     "application/pdf": "pdf",
     "text/latex": "latex",
     "application/json": "json",
     "application/javascript": "javascript",
+    "application/vnd.plotly.v1+json": "plotly",
 }
 
 
@@ -69,6 +71,8 @@ class Result:
     """``image/png`` — base64-encoded."""
     jpeg: str | None = None
     """``image/jpeg`` — base64-encoded."""
+    gif: str | None = None
+    """``image/gif`` — base64-encoded."""
     pdf: str | None = None
     """``application/pdf`` — base64-encoded."""
     latex: str | None = None
@@ -77,6 +81,8 @@ class Result:
     """``application/json`` representation."""
     javascript: str | None = None
     """``application/javascript`` representation."""
+    plotly: dict | None = None
+    """``application/vnd.plotly.v1+json`` representation."""
     extra: dict[str, str] | None = None
     """MIME types not covered by the named fields above."""
 
@@ -104,21 +110,9 @@ class Result:
 
     def formats(self) -> list[str]:
         """Return names of non-``None`` MIME-type fields."""
-        out: list[str] = []
-        for attr in (
-            "text",
-            "html",
-            "markdown",
-            "svg",
-            "png",
-            "jpeg",
-            "pdf",
-            "latex",
-            "json",
-            "javascript",
-        ):
-            if getattr(self, attr) is not None:
-                out.append(attr)
+        out: list[str] = [
+            attr for attr in _MIME_MAP.values() if getattr(self, attr) is not None
+        ]
         if self.extra:
             out.extend(self.extra)
         return out
@@ -140,6 +134,10 @@ class Execution:
     logs: Logs = field(default_factory=Logs)
     error: ExecutionError | None = None
     execution_count: int | None = None
+    timed_out: bool = False
+    """``True`` when execution was cut short by the ``timeout`` parameter
+    (or by the kernel WebSocket dropping). Pairs with ``error`` of name
+    ``"Timeout"`` or ``"Disconnected"``."""
 
     @property
     def text(self) -> str | None:
