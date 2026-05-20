@@ -7,8 +7,12 @@ when:
     path:
       include:
         - "src/**"
+        - "tests/**"
+        - "pyproject.toml"
+        - "uv.lock"
       exclude:
         - "src/wrenn/code_runner/**"
+        - "tests/test_code_runner_*.py"
 
 steps:
   test-integration:

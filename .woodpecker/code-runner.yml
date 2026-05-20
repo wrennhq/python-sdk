@@ -6,6 +6,8 @@ when:
       include:
         - "src/wrenn/code_runner/**"
         - "tests/test_code_runner_*.py"
+        - "pyproject.toml"
+        - "uv.lock"
 
 steps:
   test-code-runner:

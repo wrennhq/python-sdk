@@ -33,7 +33,7 @@ test:
 	uv run pytest tests/test_client.py tests/test_code_runner_unit.py -v
 
 test-integration:
-	uv run pytest tests/ -v -m "integration or not integration"
+	uv run pytest tests/ -v -m "integration or not integration" --ignore=tests/test_code_runner_e2e.py --ignore=tests/test_code_runner_unit.py
 
 test-code-runner:
 	uv run pytest tests/test_code_runner_unit.py tests/test_code_runner_e2e.py -v -m "integration or not integration"
