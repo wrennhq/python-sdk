@@ -1,0 +1,25 @@
+# E2E — integration. PR to dev/main when non-code_runner src changes.
+# Path filter: include src/** but exclude src/wrenn/code_runner/** so the
+# dedicated code-runner pipeline owns that surface.
+when:
+  - event: pull_request
+    branch: [main, dev]
+    path:
+      include:
+        - "src/**"
+        - "tests/**"
+        - "pyproject.toml"
+        - "uv.lock"
+      exclude:
+        - "src/wrenn/code_runner/**"
+        - "tests/test_code_runner_*.py"
+
+steps:
+  test-integration:
+    image: ghcr.io/astral-sh/uv:python3.13-bookworm
+    environment:
+      WRENN_API_KEY:
+        from_secret: WRENN_API_KEY
+    commands:
+      - uv sync --dev
+      - make test-integration

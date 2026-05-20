@@ -12,6 +12,11 @@ import httpx_ws
 
 from wrenn.exceptions import handle_response
 
+# Both signal a terminated WebSocket: ``WebSocketDisconnect`` is a clean close,
+# ``WebSocketNetworkError`` an abrupt one. The Wrenn server closes exec/process
+# streams abruptly, so iterators must treat either as end-of-stream.
+_WS_CLOSED = (httpx_ws.WebSocketDisconnect, httpx_ws.WebSocketNetworkError)
+
 
 @dataclass
 class CommandResult:
@@ -106,6 +111,54 @@ def _parse_stream_event(raw: dict) -> StreamEvent:
     return StreamEvent(type=t or "unknown")
 
 
+def _build_exec_payload(
+    cmd: str,
+    background: bool,
+    timeout: int | None,
+    envs: dict[str, str] | None,
+    cwd: str | None,
+    tag: str | None,
+) -> dict:
+    payload: dict = {
+        "cmd": "/bin/sh",
+        "args": ["-c", cmd],
+        "background": background,
+    }
+    if timeout is not None and not background:
+        payload["timeout_sec"] = timeout
+    if envs is not None:
+        payload["envs"] = envs
+    if cwd is not None:
+        payload["cwd"] = cwd
+    if tag is not None:
+        payload["tag"] = tag
+    return payload
+
+
+def _exec_http_timeout(background: bool, timeout: int | None) -> httpx.Timeout | None:
+    if not background and timeout is not None:
+        return httpx.Timeout(timeout + 10, connect=5.0)
+    return None
+
+
+def _decode_exec_run(
+    data: dict, capsule_id: str, background: bool
+) -> CommandResult | CommandHandle:
+    if background:
+        return CommandHandle(
+            pid=data.get("pid", 0),
+            tag=data.get("tag", ""),
+            capsule_id=capsule_id,
+        )
+    return _decode_exec_response(data)
+
+
+def _build_stream_start(cmd: str, args: builtins.list[str] | None) -> dict:
+    if args:
+        return {"type": "start", "cmd": cmd, "args": args}
+    return {"type": "start", "cmd": "/bin/sh", "args": ["-c", cmd]}
+
+
 def _decode_exec_response(data: dict) -> CommandResult:
     stdout = data.get("stdout") or ""
     stderr = data.get("stderr") or ""
@@ -184,39 +237,14 @@ class Commands:
             CommandHandle: PID and tag for background commands
             (``background=True``).
         """
-        payload: dict = {
-            "cmd": "/bin/sh",
-            "args": ["-c", cmd],
-            "background": background,
-        }
-        if timeout is not None and not background:
-            payload["timeout_sec"] = timeout
-        if envs is not None:
-            payload["envs"] = envs
-        if cwd is not None:
-            payload["cwd"] = cwd
-        if tag is not None:
-            payload["tag"] = tag
-
-        http_timeout: httpx.Timeout | None = None
-        if not background and timeout is not None:
-            http_timeout = httpx.Timeout(timeout + 10, connect=5.0)
-
         resp = self._http.post(
             f"/v1/capsules/{self._capsule_id}/exec",
-            json=payload,
-            timeout=http_timeout,
+            json=_build_exec_payload(cmd, background, timeout, envs, cwd, tag),
+            timeout=_exec_http_timeout(background, timeout),
         )
         data = handle_response(resp)
         assert isinstance(data, dict)
-
-        if background:
-            return CommandHandle(
-                pid=data.get("pid", 0),
-                tag=data.get("tag", ""),
-                capsule_id=self._capsule_id,
-            )
-        return _decode_exec_response(data)
+        return _decode_exec_run(data, self._capsule_id, background)
 
     def list(self) -> list[ProcessInfo]:
         """List all running background processes in the capsule.
@@ -271,7 +299,7 @@ class Commands:
                     yield event
                     if event.type in ("exit", "error"):
                         break
-                except httpx_ws.WebSocketDisconnect:
+                except _WS_CLOSED:
                     break
 
     def stream(
@@ -294,11 +322,7 @@ class Commands:
             f"/v1/capsules/{self._capsule_id}/exec/stream",
             self._http,
         ) as ws:  # type: httpx_ws.WebSocketSession
-            if args:
-                start_msg: dict = {"type": "start", "cmd": cmd, "args": args}
-            else:
-                start_msg = {"type": "start", "cmd": "/bin/sh", "args": ["-c", cmd]}
-            ws.send_text(json.dumps(start_msg))
+            ws.send_text(json.dumps(_build_stream_start(cmd, args)))
             while True:
                 try:
                     raw = ws.receive_json()
@@ -306,7 +330,7 @@ class Commands:
                     yield event
                     if event.type in ("exit", "error"):
                         break
-                except httpx_ws.WebSocketDisconnect:
+                except _WS_CLOSED:
                     break
 
 
@@ -373,39 +397,14 @@ class AsyncCommands:
             CommandHandle: PID and tag for background commands
             (``background=True``).
         """
-        payload: dict = {
-            "cmd": "/bin/sh",
-            "args": ["-c", cmd],
-            "background": background,
-        }
-        if timeout is not None and not background:
-            payload["timeout_sec"] = timeout
-        if envs is not None:
-            payload["envs"] = envs
-        if cwd is not None:
-            payload["cwd"] = cwd
-        if tag is not None:
-            payload["tag"] = tag
-
-        http_timeout: httpx.Timeout | None = None
-        if not background and timeout is not None:
-            http_timeout = httpx.Timeout(timeout + 10, connect=5.0)
-
         resp = await self._http.post(
             f"/v1/capsules/{self._capsule_id}/exec",
-            json=payload,
-            timeout=http_timeout,
+            json=_build_exec_payload(cmd, background, timeout, envs, cwd, tag),
+            timeout=_exec_http_timeout(background, timeout),
         )
         data = handle_response(resp)
         assert isinstance(data, dict)
-
-        if background:
-            return CommandHandle(
-                pid=data.get("pid", 0),
-                tag=data.get("tag", ""),
-                capsule_id=self._capsule_id,
-            )
-        return _decode_exec_response(data)
+        return _decode_exec_run(data, self._capsule_id, background)
 
     async def list(self) -> list[ProcessInfo]:
         """List all running background processes in the capsule.
@@ -462,7 +461,7 @@ class AsyncCommands:
                     yield event
                     if event.type in ("exit", "error"):
                         break
-            except httpx_ws.WebSocketDisconnect:
+            except _WS_CLOSED:
                 pass
 
     async def stream(
@@ -485,11 +484,7 @@ class AsyncCommands:
             f"/v1/capsules/{self._capsule_id}/exec/stream",
             self._http,
         ) as ws:  # type: httpx_ws.AsyncWebSocketSession
-            if args:
-                start_msg: dict = {"type": "start", "cmd": cmd, "args": args}
-            else:
-                start_msg = {"type": "start", "cmd": "/bin/sh", "args": ["-c", cmd]}
-            await ws.send_text(json.dumps(start_msg))
+            await ws.send_text(json.dumps(_build_stream_start(cmd, args)))
             try:
                 while True:
                     raw = await ws.receive_json()
@@ -497,5 +492,5 @@ class AsyncCommands:
                     yield event
                     if event.type in ("exit", "error"):
                         break
-            except httpx_ws.WebSocketDisconnect:
+            except _WS_CLOSED:
                 pass

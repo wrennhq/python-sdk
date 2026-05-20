@@ -36,10 +36,10 @@ class TestCapsules:
     @respx.mock
     def test_create(self, client):
         respx.post(f"{BASE}/v1/capsules").respond(
-            201,
+            202,
             json={
                 "id": "sb-1",
-                "status": "pending",
+                "status": "starting",
                 "template": "base-python",
                 "vcpus": 2,
                 "memory_mb": 1024,
@@ -48,12 +48,12 @@ class TestCapsules:
         resp = client.capsules.create(template="base-python", vcpus=2, memory_mb=1024)
         assert isinstance(resp, Capsule)
         assert resp.id == "sb-1"
-        assert resp.status == Status.pending
+        assert resp.status == Status.starting
 
     @respx.mock
     def test_create_defaults(self, client):
         respx.post(f"{BASE}/v1/capsules").respond(
-            201, json={"id": "sb-2", "status": "pending"}
+            202, json={"id": "sb-2", "status": "starting"}
         )
         resp = client.capsules.create()
         assert resp.id == "sb-2"
@@ -77,25 +77,25 @@ class TestCapsules:
 
     @respx.mock
     def test_destroy(self, client):
-        route = respx.delete(f"{BASE}/v1/capsules/sb-1").respond(204)
+        route = respx.delete(f"{BASE}/v1/capsules/sb-1").respond(202)
         client.capsules.destroy("sb-1")
         assert route.called
 
     @respx.mock
     def test_pause(self, client):
         respx.post(f"{BASE}/v1/capsules/sb-1/pause").respond(
-            200, json={"id": "sb-1", "status": "paused"}
+            202, json={"id": "sb-1", "status": "pausing"}
         )
         resp = client.capsules.pause("sb-1")
-        assert resp.status == Status.paused
+        assert resp.status == Status.pausing
 
     @respx.mock
     def test_resume(self, client):
         respx.post(f"{BASE}/v1/capsules/sb-1/resume").respond(
-            200, json={"id": "sb-1", "status": "running"}
+            202, json={"id": "sb-1", "status": "resuming"}
         )
         resp = client.capsules.resume("sb-1")
-        assert resp.status == Status.running
+        assert resp.status == Status.resuming
 
     @respx.mock
     def test_ping(self, client):
@@ -238,7 +238,7 @@ class TestAsyncClient:
     async def test_async_capsules_create(self, async_client):
         async with async_client:
             respx.post(f"{BASE}/v1/capsules").respond(
-                201, json={"id": "sb-1", "status": "pending"}
+                202, json={"id": "sb-1", "status": "starting"}
             )
             resp = await async_client.capsules.create(template="base-python")
             assert resp.id == "sb-1"
@@ -261,3 +261,39 @@ class TestAsyncClient:
             )
             with pytest.raises(WrennNotFoundError):
                 await async_client.capsules.get("nope")
+
+
+class TestClientResolution:
+    def test_default_base_url_strips_app_subdomain(self):
+        with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
+            assert c._proxy_domain == "wrenn.dev"
+
+    def test_custom_base_url_preserves_host(self):
+        with WrennClient(
+            api_key="wrn_test1234567890abcdef12345678",
+            base_url="http://localhost:8080/api",
+        ) as c:
+            assert c._proxy_domain == "localhost:8080"
+
+    def test_explicit_proxy_domain_wins(self):
+        with WrennClient(
+            api_key="wrn_test1234567890abcdef12345678",
+            base_url="https://app.wrenn.dev/api",
+            proxy_domain="custom.example.com",
+        ) as c:
+            assert c._proxy_domain == "custom.example.com"
+
+    def test_env_proxy_domain(self, monkeypatch):
+        monkeypatch.setenv("WRENN_PROXY_DOMAIN", "env.example.com")
+        with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
+            assert c._proxy_domain == "env.example.com"
+
+    def test_default_timeout(self):
+        with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
+            t = c._http.timeout
+            assert t.connect == 10.0
+            assert t.read == 30.0
+
+    def test_timeout_float_override(self):
+        with WrennClient(api_key="wrn_test1234567890abcdef12345678", timeout=5.0) as c:
+            assert c._http.timeout.connect == 5.0

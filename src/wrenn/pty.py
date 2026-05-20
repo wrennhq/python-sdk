@@ -9,6 +9,10 @@ from typing import Any
 import httpx_ws
 from pydantic import BaseModel
 
+# A clean (``WebSocketDisconnect``) or abrupt (``WebSocketNetworkError``) close
+# both mean the PTY stream has ended; iteration must stop on either.
+_WS_CLOSED = (httpx_ws.WebSocketDisconnect, httpx_ws.WebSocketNetworkError)
+
 
 class PtyEventType(StrEnum):
     started = "started"
@@ -49,7 +53,16 @@ def _parse_pty_event(raw: dict[str, Any]) -> PtyEvent:
         )
     if msg_type == "ping":
         return PtyEvent(type=PtyEventType.ping)
-    return PtyEvent(type=PtyEventType(msg_type) if msg_type else PtyEventType.ping)
+    if not msg_type:
+        return PtyEvent(type=PtyEventType.ping)
+    try:
+        return PtyEvent(type=PtyEventType(msg_type))
+    except ValueError:
+        return PtyEvent(
+            type=PtyEventType.error,
+            data=f"unknown msg_type: {msg_type!r}",
+            fatal=False,
+        )
 
 
 class PtySession:
@@ -109,6 +122,13 @@ class PtySession:
     def _send_connect(self, tag: str) -> None:
         self._ws.send_text(json.dumps({"type": "connect", "tag": tag}))
 
+    def _send_pong(self) -> None:
+        """Reply to a server keepalive ``ping`` so the session stays open."""
+        try:
+            self._ws.send_text(json.dumps({"type": "pong"}))
+        except _WS_CLOSED:
+            pass
+
     def write(self, data: bytes) -> None:
         """Send raw bytes to the PTY stdin.
 
@@ -144,7 +164,7 @@ class PtySession:
             raise StopIteration
         try:
             raw = self._ws.receive_text()
-        except httpx_ws.WebSocketDisconnect:
+        except _WS_CLOSED:
             raise StopIteration
         event = _parse_pty_event(json.loads(raw))
         if event.type == PtyEventType.started:
@@ -152,6 +172,8 @@ class PtySession:
                 self._tag = event.tag
             if event.pid is not None:
                 self._pid = event.pid
+        if event.type == PtyEventType.ping:
+            self._send_pong()
         if event.type == PtyEventType.exit:
             self._done = True
             return event
@@ -236,6 +258,13 @@ class AsyncPtySession:
     async def _send_connect(self, tag: str) -> None:
         await self._ws.send_text(json.dumps({"type": "connect", "tag": tag}))
 
+    async def _send_pong(self) -> None:
+        """Reply to a server keepalive ``ping`` so the session stays open."""
+        try:
+            await self._ws.send_text(json.dumps({"type": "pong"}))
+        except _WS_CLOSED:
+            pass
+
     async def write(self, data: bytes) -> None:
         """Send raw bytes to the PTY stdin.
 
@@ -273,7 +302,7 @@ class AsyncPtySession:
             raise StopAsyncIteration
         try:
             raw = await self._ws.receive_text()
-        except httpx_ws.WebSocketDisconnect:
+        except _WS_CLOSED:
             raise StopAsyncIteration
         event = _parse_pty_event(json.loads(raw))
         if event.type == PtyEventType.started:
@@ -281,6 +310,8 @@ class AsyncPtySession:
                 self._tag = event.tag
             if event.pid is not None:
                 self._pid = event.pid
+        if event.type == PtyEventType.ping:
+            await self._send_pong()
         if event.type == PtyEventType.exit:
             self._done = True
             return event

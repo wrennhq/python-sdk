@@ -169,3 +169,62 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 2. Use `detect_changes` for code review.
 3. Use `get_affected_flows` to understand impact.
 4. Use `query_graph` pattern="tests_for" to check coverage.
+
+## Code Runner Module
+
+`wrenn.code_runner` — stateful code execution capsule via persistent
+Jupyter kernel.
+
+- **Module path:** `wrenn.code_runner` (canonical). The old path
+  `wrenn.code_interpreter` is a deprecation alias that emits a
+  `FutureWarning` on import; do not introduce new uses.
+- **Defaults:** template `code-runner-beta`, kernelspec `wrenn`.
+  Both overridable via `Capsule(template=..., kernel=...)`.
+- **Kernel reuse:** `_ensure_kernel` lists `/api/kernels`, reuses the
+  first kernel whose `name` matches the configured kernelspec, else
+  POSTs `{"name": <kernel>}` to create one. Matching by name (not just
+  "any kernel") is intentional — multiple kernelspecs may coexist on
+  the same Jupyter.
+- **Lifecycle invariant:** the constructor sets `_kernel_id`,
+  `_kernel_name`, `_proxy_client` to safe defaults *before* calling
+  `super().__init__`. `__del__` must never assume construction
+  completed. Async `__del__` only drops the reference — the proxy
+  `httpx.AsyncClient` must be closed via `await close()` or
+  `async with`.
+
+## Client Config
+
+`WrennClient` / `AsyncWrennClient` accept:
+- `api_key` — falls back to `WRENN_API_KEY`.
+- `base_url` — falls back to `WRENN_BASE_URL`, then `DEFAULT_BASE_URL`
+  (`https://app.wrenn.dev/api`).
+- `proxy_domain` — host suffix for capsule proxy URLs
+  (`{port}-{capsule_id}.<domain>`). Resolution:
+  1. explicit `proxy_domain=` kwarg
+  2. `WRENN_PROXY_DOMAIN` env
+  3. `wrenn.dev` when `base_url` host == `app.wrenn.dev` exactly
+  4. else `base_url` host (with port) verbatim
+  Exact match in step 3 is intentional: staging/other Wrenn envs keep
+  their host so they don't accidentally collapse to prod `wrenn.dev`.
+- `timeout` — `httpx.Timeout | float | None`. Default
+  `httpx.Timeout(30.0, connect=10.0)`. Helper `_resolve_timeout`
+  centralizes the float-or-Timeout coercion.
+
+`_build_proxy_url` / `_build_http_proxy_url` in `wrenn.capsule` now take
+an optional `proxy_domain` arg. When omitted they fall back to the
+`base_url` host (legacy behavior, preserved for direct callers/tests).
+Production call sites pass `self._client._proxy_domain`.
+
+### Tests
+
+- `tests/test_code_runner_unit.py` — pure unit tests (respx + mocked
+  WebSocket). Covers `Result.from_bundle`, MIME unpacking,
+  quote-stripping, `Execution.text`, kernel reuse vs create, retry on
+  5xx, 4xx propagation, ctor-failure-safe `__del__`, deprecation
+  alias.
+- `tests/test_code_runner_e2e.py` — live integration tests (marked
+  `integration`, skipped without `WRENN_API_KEY`). Covers stateful
+  execution, exceptions, callbacks, rich outputs (HTML, matplotlib,
+  pandas), async variant, isolation between capsules, and the
+  deprecated `code_interpreter` import path.
+- Run both: `make test-code-runner`.

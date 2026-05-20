@@ -351,11 +351,6 @@ def build_config_get(
     return args
 
 
-def build_has_upstream() -> list[str]:
-    """Build arguments to check if current branch has upstream tracking."""
-    return ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]
-
-
 # ── Parsers ────────────────────────────────────────────────────────
 
 

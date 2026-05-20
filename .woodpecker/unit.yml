@@ -1,0 +1,11 @@
+# Unit tests — every push and pull_request, all branches.
+when:
+  - event: push
+  - event: pull_request
+
+steps:
+  unit-tests:
+    image: ghcr.io/astral-sh/uv:python3.13-bookworm
+    commands:
+      - uv sync --dev
+      - uv run pytest -m "not integration" -v

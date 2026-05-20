@@ -150,6 +150,9 @@ def handle_response(resp: httpx.Response) -> dict | list:
     if resp.status_code == 204:
         return {}
 
+    if not resp.content:
+        return {}
+
     return resp.json()
 
 

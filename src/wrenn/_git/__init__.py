@@ -153,6 +153,20 @@ class Git:
             timeout=timeout,
         )
 
+    def _run_op(
+        self,
+        argv: list[str],
+        *,
+        op: str,
+        cwd: str | None = None,
+        envs: dict[str, str] | None = None,
+        timeout: int | None = 30,
+    ) -> CommandResult:
+        """``_run`` + :func:`_check_result` in one call. Raises on failure."""
+        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
+        _check_result(result, op=op)
+        return result
+
     # ── Repository setup ───────────────────────────────────────
 
     def clone(
@@ -203,8 +217,7 @@ class Git:
             clone_url = embed_credentials(url, username, password)
 
         argv = build_clone(clone_url, dest, branch=branch, depth=depth)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="clone")
+        result = self._run_op(argv, op="clone", cwd=cwd, envs=envs, timeout=timeout)
 
         if username and password and not dangerously_store_credentials:
             sanitized = strip_credentials(clone_url)
@@ -248,8 +261,7 @@ class Git:
             GitCommandError: If init failed.
         """
         argv = build_init(path, bare=bare, initial_branch=initial_branch)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="init")
+        result = self._run_op(argv, op="init", cwd=cwd, envs=envs, timeout=timeout)
         return result
 
     # ── Staging and committing ─────────────────────────────────
@@ -280,8 +292,7 @@ class Git:
             GitCommandError: If add failed.
         """
         argv = build_add(paths, all=all)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="add")
+        result = self._run_op(argv, op="add", cwd=cwd, envs=envs, timeout=timeout)
         return result
 
     def commit(
@@ -318,8 +329,7 @@ class Git:
             author_name=author_name,
             author_email=author_email,
         )
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="commit")
+        result = self._run_op(argv, op="commit", cwd=cwd, envs=envs, timeout=timeout)
         return result
 
     # ── Remote sync ────────────────────────────────────────────
@@ -375,8 +385,7 @@ class Git:
             )
 
         argv = build_push(remote, branch, force=force, set_upstream=set_upstream)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="push")
+        result = self._run_op(argv, op="push", cwd=cwd, envs=envs, timeout=timeout)
         return result
 
     def pull(
@@ -430,8 +439,7 @@ class Git:
             )
 
         argv = build_pull(remote, branch, rebase=rebase, ff_only=ff_only)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="pull")
+        result = self._run_op(argv, op="pull", cwd=cwd, envs=envs, timeout=timeout)
         return result
 
     # ── Status and branches ────────────────────────────────────
@@ -456,8 +464,9 @@ class Git:
         Raises:
             GitCommandError: If the command failed.
         """
-        result = self._run(build_status(), cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="status")
+        result = self._run_op(
+            build_status(), op="status", cwd=cwd, envs=envs, timeout=timeout
+        )
         return parse_status(result.stdout)
 
     def branches(
@@ -480,8 +489,9 @@ class Git:
         Raises:
             GitCommandError: If the command failed.
         """
-        result = self._run(build_branches(), cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="branches")
+        result = self._run_op(
+            build_branches(), op="branches", cwd=cwd, envs=envs, timeout=timeout
+        )
         return parse_branches(result.stdout)
 
     def create_branch(
@@ -509,8 +519,9 @@ class Git:
             GitCommandError: If the command failed.
         """
         argv = build_create_branch(name, start_point=start_point)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="create_branch")
+        result = self._run_op(
+            argv, op="create_branch", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     def checkout_branch(
@@ -536,8 +547,9 @@ class Git:
             GitCommandError: If the command failed.
         """
         argv = build_checkout(name)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="checkout_branch")
+        result = self._run_op(
+            argv, op="checkout_branch", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     def delete_branch(
@@ -565,8 +577,9 @@ class Git:
             GitCommandError: If the command failed.
         """
         argv = build_delete_branch(name, force=force)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="delete_branch")
+        result = self._run_op(
+            argv, op="delete_branch", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     # ── Remotes ────────────────────────────────────────────────
@@ -598,8 +611,9 @@ class Git:
             GitCommandError: If the command failed.
         """
         argv = build_remote_add(name, url, fetch=fetch)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="remote_add")
+        result = self._run_op(
+            argv, op="remote_add", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     def remote_get(
@@ -661,8 +675,7 @@ class Git:
             GitCommandError: If the command failed.
         """
         argv = build_reset(mode=mode, ref=ref, paths=paths)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="reset")
+        result = self._run_op(argv, op="reset", cwd=cwd, envs=envs, timeout=timeout)
         return result
 
     def restore(
@@ -694,8 +707,7 @@ class Git:
             GitCommandError: If the command failed.
         """
         argv = build_restore(paths, staged=staged, worktree=worktree, source=source)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="restore")
+        result = self._run_op(argv, op="restore", cwd=cwd, envs=envs, timeout=timeout)
         return result
 
     # ── Configuration ──────────────────────────────────────────
@@ -729,8 +741,9 @@ class Git:
             GitCommandError: If the command failed.
         """
         argv = build_config_set(key, value, scope=scope, repo_path=cwd)
-        result = self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="set_config")
+        result = self._run_op(
+            argv, op="set_config", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     def get_config(
@@ -957,6 +970,20 @@ class AsyncGit:
             timeout=timeout,
         )
 
+    async def _run_op(
+        self,
+        argv: list[str],
+        *,
+        op: str,
+        cwd: str | None = None,
+        envs: dict[str, str] | None = None,
+        timeout: int | None = 30,
+    ) -> CommandResult:
+        """``_run`` + :func:`_check_result` in one call. Raises on failure."""
+        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
+        _check_result(result, op=op)
+        return result
+
     # ── Repository setup ───────────────────────────────────────
 
     async def clone(
@@ -984,8 +1011,9 @@ class AsyncGit:
             clone_url = embed_credentials(url, username, password)
 
         argv = build_clone(clone_url, dest, branch=branch, depth=depth)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="clone")
+        result = await self._run_op(
+            argv, op="clone", cwd=cwd, envs=envs, timeout=timeout
+        )
 
         if username and password and not dangerously_store_credentials:
             sanitized = strip_credentials(clone_url)
@@ -1014,8 +1042,9 @@ class AsyncGit:
     ) -> CommandResult:
         """Initialize a new git repository."""
         argv = build_init(path, bare=bare, initial_branch=initial_branch)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="init")
+        result = await self._run_op(
+            argv, op="init", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     # ── Staging and committing ─────────────────────────────────
@@ -1031,8 +1060,7 @@ class AsyncGit:
     ) -> CommandResult:
         """Stage files for commit."""
         argv = build_add(paths, all=all)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="add")
+        result = await self._run_op(argv, op="add", cwd=cwd, envs=envs, timeout=timeout)
         return result
 
     async def commit(
@@ -1053,8 +1081,9 @@ class AsyncGit:
             author_name=author_name,
             author_email=author_email,
         )
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="commit")
+        result = await self._run_op(
+            argv, op="commit", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     # ── Remote sync ────────────────────────────────────────────
@@ -1095,8 +1124,9 @@ class AsyncGit:
             )
 
         argv = build_push(remote, branch, force=force, set_upstream=set_upstream)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="push")
+        result = await self._run_op(
+            argv, op="push", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     async def pull(
@@ -1135,8 +1165,9 @@ class AsyncGit:
             )
 
         argv = build_pull(remote, branch, rebase=rebase, ff_only=ff_only)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="pull")
+        result = await self._run_op(
+            argv, op="pull", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     # ── Status and branches ────────────────────────────────────
@@ -1149,8 +1180,9 @@ class AsyncGit:
         timeout: int | None = 30,
     ) -> GitStatus:
         """Get repository status."""
-        result = await self._run(build_status(), cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="status")
+        result = await self._run_op(
+            build_status(), op="status", cwd=cwd, envs=envs, timeout=timeout
+        )
         return parse_status(result.stdout)
 
     async def branches(
@@ -1161,8 +1193,9 @@ class AsyncGit:
         timeout: int | None = 30,
     ) -> list[GitBranch]:
         """List local branches."""
-        result = await self._run(build_branches(), cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="branches")
+        result = await self._run_op(
+            build_branches(), op="branches", cwd=cwd, envs=envs, timeout=timeout
+        )
         return parse_branches(result.stdout)
 
     async def create_branch(
@@ -1176,8 +1209,9 @@ class AsyncGit:
     ) -> CommandResult:
         """Create and check out a new branch."""
         argv = build_create_branch(name, start_point=start_point)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="create_branch")
+        result = await self._run_op(
+            argv, op="create_branch", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     async def checkout_branch(
@@ -1190,8 +1224,9 @@ class AsyncGit:
     ) -> CommandResult:
         """Check out an existing branch."""
         argv = build_checkout(name)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="checkout_branch")
+        result = await self._run_op(
+            argv, op="checkout_branch", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     async def delete_branch(
@@ -1205,8 +1240,9 @@ class AsyncGit:
     ) -> CommandResult:
         """Delete a branch."""
         argv = build_delete_branch(name, force=force)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="delete_branch")
+        result = await self._run_op(
+            argv, op="delete_branch", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     # ── Remotes ────────────────────────────────────────────────
@@ -1223,8 +1259,9 @@ class AsyncGit:
     ) -> CommandResult:
         """Add a remote."""
         argv = build_remote_add(name, url, fetch=fetch)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="remote_add")
+        result = await self._run_op(
+            argv, op="remote_add", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     async def remote_get(
@@ -1258,8 +1295,9 @@ class AsyncGit:
     ) -> CommandResult:
         """Reset the current HEAD."""
         argv = build_reset(mode=mode, ref=ref, paths=paths)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="reset")
+        result = await self._run_op(
+            argv, op="reset", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     async def restore(
@@ -1275,8 +1313,9 @@ class AsyncGit:
     ) -> CommandResult:
         """Restore working-tree files or unstage changes."""
         argv = build_restore(paths, staged=staged, worktree=worktree, source=source)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="restore")
+        result = await self._run_op(
+            argv, op="restore", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     # ── Configuration ──────────────────────────────────────────
@@ -1293,8 +1332,9 @@ class AsyncGit:
     ) -> CommandResult:
         """Set a git config value."""
         argv = build_config_set(key, value, scope=scope, repo_path=cwd)
-        result = await self._run(argv, cwd=cwd, envs=envs, timeout=timeout)
-        _check_result(result, op="set_config")
+        result = await self._run_op(
+            argv, op="set_config", cwd=cwd, envs=envs, timeout=timeout
+        )
         return result
 
     async def get_config(
