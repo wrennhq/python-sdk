@@ -84,10 +84,10 @@ capsule = Capsule.connect("cl-abc123")
 result = capsule.commands.run("echo still running")
 ```
 
-For code interpreter capsules:
+For code runner capsules:
 
 ```python
-from wrenn.code_interpreter import Capsule as CodeCapsule
+from wrenn.code_runner import Capsule as CodeCapsule
 
 capsule = CodeCapsule.connect("cl-abc123")
 result = capsule.run_code("print('reconnected')")
@@ -329,14 +329,16 @@ template = capsule.create_snapshot(name="my-template", overwrite=True)
 
 ---
 
-## Code Interpreter
+## Code Runner
 
-The `wrenn.code_interpreter` module provides a specialized capsule for stateful code execution via a persistent Jupyter kernel.
+The `wrenn.code_runner` module provides a specialized capsule for stateful code execution via a persistent Jupyter kernel. Defaults to the `code-runner-beta` template and the `wrenn` Jupyter kernelspec.
+
+> The legacy module path `wrenn.code_interpreter` still works but emits a `FutureWarning` on import. Use `wrenn.code_runner`.
 
 ### Quick Start
 
 ```python
-from wrenn.code_interpreter import Capsule
+from wrenn.code_runner import Capsule
 
 with Capsule(wait=True) as capsule:
     result = capsule.run_code("print('hello')")
@@ -348,7 +350,7 @@ with Capsule(wait=True) as capsule:
 Variables, imports, and function definitions persist across `run_code` calls:
 
 ```python
-from wrenn.code_interpreter import Capsule
+from wrenn.code_runner import Capsule
 
 with Capsule(wait=True) as capsule:
     capsule.run_code("x = 42")
@@ -403,14 +405,20 @@ capsule.run_code(
 )
 ```
 
-### Custom Templates
+### Custom Templates and Kernels
 
-By default, `code-runner-beta` template is used. You can specify a custom template:
+By default, the `code-runner-beta` template and the `wrenn` Jupyter kernelspec are used. Override either:
 
 ```python
-capsule = Capsule(template="my-custom-jupyter-template", wait=True)
+capsule = Capsule(
+    template="my-custom-jupyter-template",
+    kernel="python3",
+    wait=True,
+)
 result = capsule.run_code("print('running on custom template')")
 ```
+
+`Capsule` reuses the first kernel matching the requested `kernel` name on the Jupyter server and creates one if none exists.
 
 ### Execution Model
 
@@ -424,14 +432,14 @@ result = capsule.run_code("print('running on custom template')")
 | `execution_count` | `int \| None` | Jupyter cell execution counter |
 | `text` | `str \| None` | (property) `text/plain` of the main `execute_result` |
 
-Each `Result` has typed MIME fields: `text`, `html`, `markdown`, `svg`, `png`, `jpeg`, `pdf`, `latex`, `json`, `javascript`, plus `extra` for unknown types. String expression results have quotes stripped automatically.
+Each `Result` has typed MIME fields: `text`, `html`, `markdown`, `svg`, `png`, `jpeg`, `pdf`, `latex`, `json`, `javascript`, plus `extra` for unknown types. The `text` field is Jupyter's `text/plain` bundle verbatim — the Python `repr()` of the cell's last expression. So `run_code("'hi'").text` is `"'hi'"` (with quotes), and `run_code("42").text` is `"42"`. This preserves the distinction between the string `'2'` and the int `2`.
 
-### Code Interpreter + Commands/Files
+### Code Runner + Commands/Files
 
-The code interpreter capsule inherits all standard capsule features:
+The code runner capsule inherits all standard capsule features:
 
 ```python
-from wrenn.code_interpreter import Capsule
+from wrenn.code_runner import Capsule
 
 with Capsule(wait=True) as capsule:
     # Use run_code for Jupyter execution
@@ -469,10 +477,10 @@ async with await AsyncCapsule.create(template="minimal", wait=True) as capsule:
     await capsule.resume()
 ```
 
-### Async Code Interpreter
+### Async Code Runner
 
 ```python
-from wrenn.code_interpreter import AsyncCapsule
+from wrenn.code_runner import AsyncCapsule
 
 async with await AsyncCapsule.create(wait=True) as capsule:
     result = await capsule.run_code("2 + 2")

@@ -21,11 +21,27 @@ from wrenn.pty import PtySession
 
 
 def _build_proxy_url(base_url: str, capsule_id: str | None, port: int) -> str:
+    """Build the WebSocket proxy URL (``ws://`` / ``wss://``)."""
     parsed = httpx.URL(base_url)
     host = parsed.host
     if parsed.port:
         host = f"{host}:{parsed.port}"
     scheme = "ws" if parsed.scheme == "http" else "wss"
+    return f"{scheme}://{port}-{capsule_id}.{host}"
+
+
+def _build_http_proxy_url(base_url: str, capsule_id: str | None, port: int) -> str:
+    """Build the HTTP proxy URL (``http://`` / ``https://``).
+
+    The capsule's API base URL typically carries an ``/api`` path suffix
+    (e.g. ``https://app.wrenn.dev/api``). The proxy host is derived from
+    the URL's host only — any path is discarded.
+    """
+    parsed = httpx.URL(base_url)
+    host = parsed.host
+    if parsed.port:
+        host = f"{host}:{parsed.port}"
+    scheme = "http" if parsed.scheme in ("http", "ws") else "https"
     return f"{scheme}://{port}-{capsule_id}.{host}"
 
 
@@ -499,16 +515,18 @@ class Capsule:
     # ── Proxy helpers ───────────────────────────────────────────
 
     def get_url(self, port: int) -> str:
-        """Get the proxy URL for a port exposed inside this capsule.
+        """Get the HTTP proxy URL for a port exposed inside this capsule.
 
         Args:
             port (int): Port number to proxy.
 
         Returns:
-            str: A ``wss://`` (or ``ws://``) URL that proxies to the given
-            port inside the capsule.
+            str: A ``https://`` (or ``http://``) URL that proxies HTTP
+            requests to the given port inside the capsule. For raw
+            WebSocket access, see the lower-level ``_build_proxy_url``
+            helper or the ``pty()`` API.
         """
-        return _build_proxy_url(self._client._base_url, self._id, port)
+        return _build_http_proxy_url(self._client._base_url, self._id, port)
 
     # ── Snapshots ───────────────────────────────────────────────
 

@@ -53,7 +53,16 @@ def _parse_pty_event(raw: dict[str, Any]) -> PtyEvent:
         )
     if msg_type == "ping":
         return PtyEvent(type=PtyEventType.ping)
-    return PtyEvent(type=PtyEventType(msg_type) if msg_type else PtyEventType.ping)
+    if not msg_type:
+        return PtyEvent(type=PtyEventType.ping)
+    try:
+        return PtyEvent(type=PtyEventType(msg_type))
+    except ValueError:
+        return PtyEvent(
+            type=PtyEventType.error,
+            data=f"unknown msg_type: {msg_type!r}",
+            fatal=False,
+        )
 
 
 class PtySession:
