@@ -434,7 +434,12 @@ class AsyncCapsule:
             WebSocket access, see the lower-level ``_build_proxy_url``
             helper or the ``pty()`` API.
         """
-        return _build_http_proxy_url(self._client._base_url, self._id, port)
+        return _build_http_proxy_url(
+            self._client._base_url,
+            self._id,
+            port,
+            self._client._proxy_domain,
+        )
 
     # ── Snapshots ───────────────────────────────────────────────
 

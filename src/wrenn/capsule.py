@@ -20,27 +20,48 @@ from wrenn.models import Status, Template
 from wrenn.pty import PtySession
 
 
-def _build_proxy_url(base_url: str, capsule_id: str | None, port: int) -> str:
-    """Build the WebSocket proxy URL (``ws://`` / ``wss://``)."""
+def _build_proxy_url(
+    base_url: str,
+    capsule_id: str | None,
+    port: int,
+    proxy_domain: str | None = None,
+) -> str:
+    """Build the WebSocket proxy URL (``ws://`` / ``wss://``).
+
+    Scheme is derived from ``base_url``. The host portion comes from
+    ``proxy_domain`` if provided; otherwise falls back to the ``base_url``
+    host (with port).
+    """
     parsed = httpx.URL(base_url)
-    host = parsed.host
-    if parsed.port:
-        host = f"{host}:{parsed.port}"
+    if proxy_domain:
+        host = proxy_domain
+    else:
+        host = parsed.host
+        if parsed.port:
+            host = f"{host}:{parsed.port}"
     scheme = "ws" if parsed.scheme == "http" else "wss"
     return f"{scheme}://{port}-{capsule_id}.{host}"
 
 
-def _build_http_proxy_url(base_url: str, capsule_id: str | None, port: int) -> str:
+def _build_http_proxy_url(
+    base_url: str,
+    capsule_id: str | None,
+    port: int,
+    proxy_domain: str | None = None,
+) -> str:
     """Build the HTTP proxy URL (``http://`` / ``https://``).
 
-    The capsule's API base URL typically carries an ``/api`` path suffix
-    (e.g. ``https://app.wrenn.dev/api``). The proxy host is derived from
-    the URL's host only — any path is discarded.
+    Scheme is derived from ``base_url``. The host portion comes from
+    ``proxy_domain`` if provided; otherwise falls back to the ``base_url``
+    host (with port). Any path on ``base_url`` is discarded.
     """
     parsed = httpx.URL(base_url)
-    host = parsed.host
-    if parsed.port:
-        host = f"{host}:{parsed.port}"
+    if proxy_domain:
+        host = proxy_domain
+    else:
+        host = parsed.host
+        if parsed.port:
+            host = f"{host}:{parsed.port}"
     scheme = "http" if parsed.scheme in ("http", "ws") else "https"
     return f"{scheme}://{port}-{capsule_id}.{host}"
 
@@ -526,7 +547,12 @@ class Capsule:
             WebSocket access, see the lower-level ``_build_proxy_url``
             helper or the ``pty()`` API.
         """
-        return _build_http_proxy_url(self._client._base_url, self._id, port)
+        return _build_http_proxy_url(
+            self._client._base_url,
+            self._id,
+            port,
+            self._client._proxy_domain,
+        )
 
     # ── Snapshots ───────────────────────────────────────────────
 

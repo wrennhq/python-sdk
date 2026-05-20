@@ -110,7 +110,12 @@ class AsyncCapsule(BaseAsyncCapsule):
 
     def _get_proxy_client(self) -> httpx.AsyncClient:
         if self._proxy_client is None:
-            url = _build_http_proxy_url(self._client._base_url, self._id, 8888)
+            url = _build_http_proxy_url(
+                self._client._base_url,
+                self._id,
+                8888,
+                self._client._proxy_domain,
+            )
             self._proxy_client = httpx.AsyncClient(
                 base_url=url,
                 headers={"X-API-Key": self._client._api_key},
@@ -196,7 +201,12 @@ class AsyncCapsule(BaseAsyncCapsule):
                 "non-Python kernelspec."
             )
         kernel_id = await self._ensure_kernel(jupyter_timeout=jupyter_timeout)
-        ws_url = build_ws_url(self._client._base_url, self._id, kernel_id)
+        ws_url = build_ws_url(
+            self._client._base_url,
+            self._id,
+            kernel_id,
+            self._client._proxy_domain,
+        )
 
         msg = build_execute_request(code)
         msg_id = msg["header"]["msg_id"]

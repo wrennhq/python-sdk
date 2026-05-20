@@ -45,7 +45,12 @@ def build_execute_request(code: str) -> dict:
     }
 
 
-def build_ws_url(base_url: str, capsule_id: str, kernel_id: str) -> str:
+def build_ws_url(
+    base_url: str,
+    capsule_id: str,
+    kernel_id: str,
+    proxy_domain: str | None = None,
+) -> str:
     """Build the Jupyter kernel WebSocket URL for the given capsule."""
-    proxy = _build_proxy_url(base_url, capsule_id, 8888)
+    proxy = _build_proxy_url(base_url, capsule_id, 8888, proxy_domain)
     return f"{proxy}/api/kernels/{kernel_id}/channels"

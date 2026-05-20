@@ -192,6 +192,29 @@ Jupyter kernel.
   `httpx.AsyncClient` must be closed via `await close()` or
   `async with`.
 
+## Client Config
+
+`WrennClient` / `AsyncWrennClient` accept:
+- `api_key` — falls back to `WRENN_API_KEY`.
+- `base_url` — falls back to `WRENN_BASE_URL`, then `DEFAULT_BASE_URL`
+  (`https://app.wrenn.dev/api`).
+- `proxy_domain` — host suffix for capsule proxy URLs
+  (`{port}-{capsule_id}.<domain>`). Resolution:
+  1. explicit `proxy_domain=` kwarg
+  2. `WRENN_PROXY_DOMAIN` env
+  3. `wrenn.dev` when `base_url` host == `app.wrenn.dev` exactly
+  4. else `base_url` host (with port) verbatim
+  Exact match in step 3 is intentional: staging/other Wrenn envs keep
+  their host so they don't accidentally collapse to prod `wrenn.dev`.
+- `timeout` — `httpx.Timeout | float | None`. Default
+  `httpx.Timeout(30.0, connect=10.0)`. Helper `_resolve_timeout`
+  centralizes the float-or-Timeout coercion.
+
+`_build_proxy_url` / `_build_http_proxy_url` in `wrenn.capsule` now take
+an optional `proxy_domain` arg. When omitted they fall back to the
+`base_url` host (legacy behavior, preserved for direct callers/tests).
+Production call sites pass `self._client._proxy_domain`.
+
 ### Tests
 
 - `tests/test_code_runner_unit.py` — pure unit tests (respx + mocked

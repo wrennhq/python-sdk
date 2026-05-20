@@ -261,3 +261,39 @@ class TestAsyncClient:
             )
             with pytest.raises(WrennNotFoundError):
                 await async_client.capsules.get("nope")
+
+
+class TestClientResolution:
+    def test_default_base_url_strips_app_subdomain(self):
+        with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
+            assert c._proxy_domain == "wrenn.dev"
+
+    def test_custom_base_url_preserves_host(self):
+        with WrennClient(
+            api_key="wrn_test1234567890abcdef12345678",
+            base_url="http://localhost:8080/api",
+        ) as c:
+            assert c._proxy_domain == "localhost:8080"
+
+    def test_explicit_proxy_domain_wins(self):
+        with WrennClient(
+            api_key="wrn_test1234567890abcdef12345678",
+            base_url="https://app.wrenn.dev/api",
+            proxy_domain="custom.example.com",
+        ) as c:
+            assert c._proxy_domain == "custom.example.com"
+
+    def test_env_proxy_domain(self, monkeypatch):
+        monkeypatch.setenv("WRENN_PROXY_DOMAIN", "env.example.com")
+        with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
+            assert c._proxy_domain == "env.example.com"
+
+    def test_default_timeout(self):
+        with WrennClient(api_key="wrn_test1234567890abcdef12345678") as c:
+            t = c._http.timeout
+            assert t.connect == 10.0
+            assert t.read == 30.0
+
+    def test_timeout_float_override(self):
+        with WrennClient(api_key="wrn_test1234567890abcdef12345678", timeout=5.0) as c:
+            assert c._http.timeout.connect == 5.0

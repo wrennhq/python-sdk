@@ -26,10 +26,31 @@ Optionally override the API base URL:
 export WRENN_BASE_URL="https://app.wrenn.dev/api"  # default
 ```
 
+For self-hosted deployments you can also override the capsule proxy domain
+(used to build `{port}-{capsule_id}.<domain>` URLs returned by
+`Capsule.get_url`):
+
+```bash
+export WRENN_PROXY_DOMAIN="wrenn.example.com"
+```
+
+Resolution order: explicit `proxy_domain=` kwarg → `WRENN_PROXY_DOMAIN` env →
+`wrenn.dev` when `base_url` is the default `app.wrenn.dev` host, else the
+`base_url` host (with port) verbatim.
+
 You can also pass credentials directly:
 
 ```python
-from wrenn import Capsule
+from wrenn import WrennClient, Capsule
+
+# WrennClient also accepts a timeout (httpx.Timeout or float seconds).
+# Default: 30s read/write/pool, 10s connect.
+client = WrennClient(
+    api_key="wrn_...",
+    base_url="https://...",
+    proxy_domain="wrenn.example.com",  # optional override
+    timeout=30.0,                       # optional override
+)
 
 capsule = Capsule(api_key="wrn_...", base_url="https://...")
 ```

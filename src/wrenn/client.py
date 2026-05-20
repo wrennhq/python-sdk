@@ -4,7 +4,13 @@ import os
 
 import httpx
 
-from wrenn._config import DEFAULT_BASE_URL, ENV_API_KEY, ENV_BASE_URL
+from wrenn._config import (
+    DEFAULT_BASE_URL,
+    DEFAULT_PROXY_DOMAIN,
+    ENV_API_KEY,
+    ENV_BASE_URL,
+    ENV_PROXY_DOMAIN,
+)
 from wrenn.exceptions import handle_response
 
 from wrenn.models import (
@@ -15,6 +21,7 @@ from wrenn.models import (
 )
 
 _LONG_TIMEOUT = httpx.Timeout(60.0)
+_DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 
 def _resolve_api_key(api_key: str | None) -> str:
@@ -24,6 +31,36 @@ def _resolve_api_key(api_key: str | None) -> str:
             f"No API key provided. Pass api_key= or set the {ENV_API_KEY} environment variable."
         )
     return resolved
+
+
+def _resolve_timeout(
+    timeout: httpx.Timeout | float | None,
+) -> httpx.Timeout:
+    if timeout is None:
+        return _DEFAULT_TIMEOUT
+    if isinstance(timeout, httpx.Timeout):
+        return timeout
+    return httpx.Timeout(timeout)
+
+
+def _resolve_proxy_domain(base_url: str, override: str | None) -> str:
+    """Resolve proxy host suffix for ``{port}-{capsule_id}.<domain>`` URLs.
+
+    Precedence: explicit ``override`` arg, ``WRENN_PROXY_DOMAIN`` env, then
+    ``wrenn.dev`` only when ``base_url`` is the default Wrenn host
+    (``app.wrenn.dev``). Otherwise the ``base_url`` host (with port) is used
+    verbatim — appropriate for local dev or custom deployments.
+    """
+    resolved = override or os.environ.get(ENV_PROXY_DOMAIN)
+    if resolved:
+        return resolved
+    parsed = httpx.URL(base_url)
+    host = parsed.host
+    if host == "app.wrenn.dev":
+        return DEFAULT_PROXY_DOMAIN
+    if parsed.port:
+        return f"{host}:{parsed.port}"
+    return host
 
 
 class CapsulesResource:
@@ -394,18 +431,28 @@ class WrennClient:
     Args:
         api_key: API key (``wrn_...``). Falls back to ``WRENN_API_KEY`` env var.
         base_url: Wrenn API base URL.
+        proxy_domain: Host suffix for capsule proxy URLs
+            (``{port}-{capsule_id}.<domain>``). Falls back to
+            ``WRENN_PROXY_DOMAIN`` env, then ``wrenn.dev`` when ``base_url``
+            is the default ``app.wrenn.dev`` host, else the ``base_url`` host.
+        timeout: HTTP timeout. Accepts ``httpx.Timeout``, a float (seconds),
+            or ``None`` for the default (30s read/write/pool, 10s connect).
     """
 
     def __init__(
         self,
         api_key: str | None = None,
         base_url: str | None = None,
+        proxy_domain: str | None = None,
+        timeout: httpx.Timeout | float | None = None,
     ) -> None:
         self._api_key = _resolve_api_key(api_key)
         self._base_url = base_url or os.environ.get(ENV_BASE_URL, DEFAULT_BASE_URL)
+        self._proxy_domain = _resolve_proxy_domain(self._base_url, proxy_domain)
         self._http = httpx.Client(
             base_url=self._base_url,
             headers={"X-API-Key": self._api_key},
+            timeout=_resolve_timeout(timeout),
         )
 
         self.capsules = CapsulesResource(self._http)
@@ -440,18 +487,28 @@ class AsyncWrennClient:
     Args:
         api_key: API key (``wrn_...``). Falls back to ``WRENN_API_KEY`` env var.
         base_url: Wrenn API base URL. Falls back to ``WRENN_BASE_URL`` env var.
+        proxy_domain: Host suffix for capsule proxy URLs
+            (``{port}-{capsule_id}.<domain>``). Falls back to
+            ``WRENN_PROXY_DOMAIN`` env, then ``wrenn.dev`` when ``base_url``
+            is the default ``app.wrenn.dev`` host, else the ``base_url`` host.
+        timeout: HTTP timeout. Accepts ``httpx.Timeout``, a float (seconds),
+            or ``None`` for the default (30s read/write/pool, 10s connect).
     """
 
     def __init__(
         self,
         api_key: str | None = None,
         base_url: str | None = None,
+        proxy_domain: str | None = None,
+        timeout: httpx.Timeout | float | None = None,
     ) -> None:
         self._api_key = _resolve_api_key(api_key)
         self._base_url = base_url or os.environ.get(ENV_BASE_URL, DEFAULT_BASE_URL)
+        self._proxy_domain = _resolve_proxy_domain(self._base_url, proxy_domain)
         self._http = httpx.AsyncClient(
             base_url=self._base_url,
             headers={"X-API-Key": self._api_key},
+            timeout=_resolve_timeout(timeout),
         )
 
         self.capsules = AsyncCapsulesResource(self._http)

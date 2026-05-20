@@ -263,7 +263,7 @@ class TestEnsureKernel:
     @respx.mock
     def test_creates_kernel_with_wrenn_name_when_none_exist(self):
         c = _make_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         list_route = respx.get(f"{proxy_base}/api/kernels").respond(200, json=[])
         create_route = respx.post(f"{proxy_base}/api/kernels").respond(
             201, json={"id": "k-new", "name": "wrenn"}
@@ -279,7 +279,7 @@ class TestEnsureKernel:
     @respx.mock
     def test_reuses_existing_wrenn_kernel(self):
         c = _make_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         respx.get(f"{proxy_base}/api/kernels").respond(
             200,
             json=[
@@ -295,7 +295,7 @@ class TestEnsureKernel:
     @respx.mock
     def test_creates_when_only_other_kernels_exist(self):
         c = _make_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         respx.get(f"{proxy_base}/api/kernels").respond(
             200, json=[{"id": "k-other", "name": "python3"}]
         )
@@ -308,7 +308,7 @@ class TestEnsureKernel:
     @respx.mock
     def test_caches_kernel_id(self):
         c = _make_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         route = respx.get(f"{proxy_base}/api/kernels").respond(
             200, json=[{"id": "k-1", "name": "wrenn"}]
         )
@@ -322,7 +322,7 @@ class TestEnsureKernel:
             202, json={"id": "sb-1", "status": "starting"}
         )
         c = Capsule(kernel="python3", api_key=API_KEY, base_url=BASE)
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         respx.get(f"{proxy_base}/api/kernels").respond(200, json=[])
         create = respx.post(f"{proxy_base}/api/kernels").respond(
             201, json={"id": "k-py", "name": "python3"}
@@ -334,7 +334,7 @@ class TestEnsureKernel:
     @respx.mock
     def test_retries_on_5xx_then_succeeds(self):
         c = _make_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         responses = [
             httpx.Response(503),
             httpx.Response(200, json=[{"id": "k-1", "name": "wrenn"}]),
@@ -347,7 +347,7 @@ class TestEnsureKernel:
     @respx.mock
     def test_raises_on_4xx(self):
         c = _make_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         respx.get(f"{proxy_base}/api/kernels").respond(401)
         with pytest.raises(httpx.HTTPStatusError):
             c._ensure_kernel(jupyter_timeout=2)
@@ -355,7 +355,7 @@ class TestEnsureKernel:
     @respx.mock
     def test_timeout_raises(self):
         c = _make_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         respx.get(f"{proxy_base}/api/kernels").respond(503)
         with patch("time.sleep"):
             with pytest.raises(TimeoutError):
@@ -813,7 +813,7 @@ class TestAsyncEnsureKernel:
     @respx.mock
     async def test_async_creates_kernel_when_none_exist(self):
         c = _make_async_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         list_route = respx.get(f"{proxy_base}/api/kernels").respond(200, json=[])
         create_route = respx.post(f"{proxy_base}/api/kernels").respond(
             201, json={"id": "k-new", "name": "wrenn"}
@@ -829,7 +829,7 @@ class TestAsyncEnsureKernel:
     @respx.mock
     async def test_async_reuses_existing_wrenn_kernel(self):
         c = _make_async_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         respx.get(f"{proxy_base}/api/kernels").respond(
             200,
             json=[
@@ -847,7 +847,7 @@ class TestAsyncEnsureKernel:
     @respx.mock
     async def test_async_retries_on_5xx_then_succeeds(self):
         c = _make_async_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         responses = [
             httpx.Response(503),
             httpx.Response(200, json=[{"id": "k-1", "name": "wrenn"}]),
@@ -867,7 +867,7 @@ class TestAsyncEnsureKernel:
     @respx.mock
     async def test_async_raises_on_4xx(self):
         c = _make_async_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         respx.get(f"{proxy_base}/api/kernels").respond(401)
         with pytest.raises(httpx.HTTPStatusError):
             await c._ensure_kernel(jupyter_timeout=2)
@@ -877,7 +877,7 @@ class TestAsyncEnsureKernel:
     @respx.mock
     async def test_async_caches_kernel_id(self):
         c = _make_async_capsule()
-        proxy_base = "https://8888-sb-1.app.wrenn.dev"
+        proxy_base = "https://8888-sb-1.wrenn.dev"
         route = respx.get(f"{proxy_base}/api/kernels").respond(
             200, json=[{"id": "k-1", "name": "wrenn"}]
         )

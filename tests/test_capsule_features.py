@@ -45,6 +45,16 @@ class TestBuildHttpProxyUrl:
         url = _build_http_proxy_url("https://api.example.com:9443", "sb-1", 80)
         assert url == "https://80-sb-1.api.example.com:9443"
 
+    def test_proxy_domain_override_http(self):
+        url = _build_http_proxy_url(
+            "https://app.wrenn.dev/api", "cl-abc", 8080, "wrenn.dev"
+        )
+        assert url == "https://8080-cl-abc.wrenn.dev"
+
+    def test_proxy_domain_override_ws(self):
+        url = _build_proxy_url("https://app.wrenn.dev/api", "cl-abc", 8888, "wrenn.dev")
+        assert url == "wss://8888-cl-abc.wrenn.dev"
+
 
 class TestCapsuleCreate:
     @respx.mock
@@ -222,7 +232,7 @@ class TestGetUrlPublic:
             202, json={"id": "cl-99", "status": "starting"}
         )
         cap = Capsule(api_key=API_KEY, base_url=BASE)
-        assert cap.get_url(8080) == "https://8080-cl-99.app.wrenn.dev"
+        assert cap.get_url(8080) == "https://8080-cl-99.wrenn.dev"
 
     @respx.mock
     def test_sync_get_url_localhost(self):
@@ -242,7 +252,7 @@ class TestGetUrlPublic:
             202, json={"id": "cl-async", "status": "starting"}
         )
         cap = await AsyncCapsule.create(api_key=API_KEY, base_url=BASE)
-        assert cap.get_url(5000) == "https://5000-cl-async.app.wrenn.dev"
+        assert cap.get_url(5000) == "https://5000-cl-async.wrenn.dev"
         await cap._client.aclose()
 
 
