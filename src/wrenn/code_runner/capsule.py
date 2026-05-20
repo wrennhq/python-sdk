@@ -10,7 +10,13 @@ import httpx_ws
 
 from wrenn.capsule import Capsule as BaseCapsule
 from wrenn.capsule import _build_http_proxy_url
-from wrenn.code_runner._protocol import build_execute_request, build_ws_url
+from wrenn.code_runner._protocol import (
+    apply_kernel_message,
+    build_execute_request,
+    build_ws_url,
+    pick_kernel_id,
+    validate_language,
+)
 from wrenn.code_runner.models import (
     Execution,
     ExecutionError,
@@ -37,6 +43,8 @@ class Capsule(BaseCapsule):
     _kernel_id: str | None
     _kernel_name: str
     _proxy_client: httpx.Client | None
+    _ws: httpx_ws.WebSocketSession | None
+    _ws_cm: Any
 
     def __init__(
         self,
@@ -69,6 +77,8 @@ class Capsule(BaseCapsule):
         self._kernel_id = None
         self._kernel_name = kernel or DEFAULT_KERNEL
         self._proxy_client = None
+        self._ws = None
+        self._ws_cm = None
         super().__init__(
             template=template or DEFAULT_TEMPLATE,
             vcpus=vcpus,
@@ -79,7 +89,41 @@ class Capsule(BaseCapsule):
             **kwargs,
         )
 
+    def _close_ws(self) -> None:
+        cm = getattr(self, "_ws_cm", None)
+        if cm is not None:
+            try:
+                cm.__exit__(None, None, None)
+            except Exception:
+                pass
+        self._ws = None
+        self._ws_cm = None
+
+    def _get_ws(self, kernel_id: str) -> httpx_ws.WebSocketSession:
+        if self._ws is not None:
+            return self._ws
+        ws_url = build_ws_url(
+            self._client._base_url,
+            self._id,
+            kernel_id,
+            self._client._proxy_domain,
+        )
+        headers = {"X-API-Key": self._client._api_key}
+        cm: Any = httpx_ws.connect_ws(ws_url, headers=headers)
+        try:
+            ws = cm.__enter__()
+        except BaseException:
+            try:
+                cm.__exit__(None, None, None)
+            except Exception:
+                pass
+            raise
+        self._ws_cm = cm
+        self._ws = ws
+        return ws
+
     def close(self) -> None:
+        self._close_ws()
         proxy = getattr(self, "_proxy_client", None)
         if proxy is not None:
             try:
@@ -93,6 +137,13 @@ class Capsule(BaseCapsule):
             self.close()
         except Exception:
             pass
+
+    def _instance_destroy(self, wait: bool = False) -> None:
+        # Release WS threads + proxy client before destroying.
+        # httpx_ws sync sessions spawn non-daemon threads; not joining
+        # them keeps the interpreter alive after tests/scripts return.
+        self.close()
+        super()._instance_destroy(wait=wait)
 
     @classmethod
     def create(
@@ -164,11 +215,10 @@ class Capsule(BaseCapsule):
                 resp = client.get("/api/kernels")
                 if resp.status_code < 500:
                     resp.raise_for_status()
-                    kernels = resp.json()
-                    for k in kernels:
-                        if k.get("name") == self._kernel_name:
-                            self._kernel_id = k["id"]
-                            return self._kernel_id
+                    matched = pick_kernel_id(resp.json(), self._kernel_name)
+                    if matched is not None:
+                        self._kernel_id = matched
+                        return matched
                     # No matching kernel; create one with the requested spec.
                     resp = client.post(
                         "/api/kernels",
@@ -229,26 +279,14 @@ class Capsule(BaseCapsule):
             An :class:`Execution` with ``.results``, ``.logs``, ``.error``,
             and a convenience ``.text`` property.
         """
-        if language != "python":
-            raise ValueError(
-                f"language={language!r} is not supported; only 'python'. "
-                "Use the ``kernel=`` constructor argument to target a "
-                "non-Python kernelspec."
-            )
+        validate_language(language)
         kernel_id = self._ensure_kernel(jupyter_timeout=jupyter_timeout)
-        ws_url = build_ws_url(
-            self._client._base_url,
-            self._id,
-            kernel_id,
-            self._client._proxy_domain,
-        )
 
         msg = build_execute_request(code)
         msg_id = msg["header"]["msg_id"]
 
         execution = Execution()
         deadline = time.monotonic() + timeout
-        headers = {"X-API-Key": self._client._api_key}
         saw_idle = False
 
         def _emit_error(err: ExecutionError) -> None:
@@ -256,69 +294,53 @@ class Capsule(BaseCapsule):
             if on_error is not None:
                 on_error(err)
 
-        with httpx_ws.connect_ws(ws_url, headers=headers) as ws:  # type: httpx_ws.WebSocketSession
-            ws.send_text(json.dumps(msg))
-            while True:
-                time_left = deadline - time.monotonic()
-                if time_left <= 0:
-                    break
-                try:
+        reconnect_attempts = 1
+        sent = False
+        while True:
+            try:
+                ws = self._get_ws(kernel_id)
+                if not sent:
+                    ws.send_text(json.dumps(msg))
+                    sent = True
+                while True:
+                    time_left = deadline - time.monotonic()
+                    if time_left <= 0:
+                        break
                     data = ws.receive_json(timeout=time_left)
-                except TimeoutError:
-                    break
-                except (
-                    httpx_ws.WebSocketDisconnect,
-                    httpx_ws.WebSocketNetworkError,
-                ) as exc:
-                    execution.timed_out = True
-                    _emit_error(
-                        ExecutionError(
-                            name="Disconnected",
-                            value=f"kernel WebSocket closed: {exc}",
-                        )
-                    )
-                    break
-                if not data:
-                    break
-                parent = data.get("parent_header", {}).get("msg_id")
-                if parent != msg_id:
+                    if not data:
+                        break
+                    if apply_kernel_message(
+                        data,
+                        msg_id,
+                        execution,
+                        _emit_error,
+                        on_result,
+                        on_stdout,
+                        on_stderr,
+                    ):
+                        saw_idle = True
+                        break
+                break
+            except TimeoutError:
+                break
+            except (
+                httpx_ws.WebSocketDisconnect,
+                httpx_ws.WebSocketNetworkError,
+                httpx.ReadError,
+                httpx.RemoteProtocolError,
+            ) as exc:
+                self._close_ws()
+                if reconnect_attempts > 0 and not sent:
+                    reconnect_attempts -= 1
                     continue
-                msg_type = data.get("msg_type") or data.get("header", {}).get(
-                    "msg_type"
-                )
-                content = data.get("content", {})
-
-                if msg_type == "stream":
-                    text = content.get("text", "")
-                    name = content.get("name", "stdout")
-                    if name == "stderr":
-                        execution.logs.stderr.append(text)
-                        if on_stderr is not None:
-                            on_stderr(text)
-                    else:
-                        execution.logs.stdout.append(text)
-                        if on_stdout is not None:
-                            on_stdout(text)
-                elif msg_type in ("execute_result", "display_data"):
-                    bundle = content.get("data", {})
-                    is_main = msg_type == "execute_result"
-                    result = Result.from_bundle(bundle, is_main_result=is_main)
-                    execution.results.append(result)
-                    if is_main:
-                        execution.execution_count = content.get("execution_count")
-                    if on_result is not None:
-                        on_result(result)
-                elif msg_type == "error":
-                    _emit_error(
-                        ExecutionError(
-                            name=content.get("ename", ""),
-                            value=content.get("evalue", ""),
-                            traceback="\n".join(content.get("traceback", [])),
-                        )
+                _emit_error(
+                    ExecutionError(
+                        name="Disconnected",
+                        value=f"kernel WebSocket closed: {exc}",
                     )
-                elif msg_type == "status" and content.get("execution_state") == "idle":
-                    saw_idle = True
-                    break
+                )
+                execution.timed_out = True
+                break
 
         if not saw_idle and execution.error is None:
             execution.timed_out = True

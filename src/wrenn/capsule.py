@@ -20,18 +20,14 @@ from wrenn.models import Status, Template
 from wrenn.pty import PtySession
 
 
-def _build_proxy_url(
+def _proxy_url(
     base_url: str,
     capsule_id: str | None,
     port: int,
-    proxy_domain: str | None = None,
+    proxy_domain: str | None,
+    *,
+    websocket: bool,
 ) -> str:
-    """Build the WebSocket proxy URL (``ws://`` / ``wss://``).
-
-    Scheme is derived from ``base_url``. The host portion comes from
-    ``proxy_domain`` if provided; otherwise falls back to the ``base_url``
-    host (with port).
-    """
     parsed = httpx.URL(base_url)
     if proxy_domain:
         host = proxy_domain
@@ -39,8 +35,22 @@ def _build_proxy_url(
         host = parsed.host
         if parsed.port:
             host = f"{host}:{parsed.port}"
-    scheme = "ws" if parsed.scheme == "http" else "wss"
+    secure = parsed.scheme not in ("http", "ws")
+    if websocket:
+        scheme = "wss" if secure else "ws"
+    else:
+        scheme = "https" if secure else "http"
     return f"{scheme}://{port}-{capsule_id}.{host}"
+
+
+def _build_proxy_url(
+    base_url: str,
+    capsule_id: str | None,
+    port: int,
+    proxy_domain: str | None = None,
+) -> str:
+    """Build the WebSocket proxy URL (``ws://`` / ``wss://``)."""
+    return _proxy_url(base_url, capsule_id, port, proxy_domain, websocket=True)
 
 
 def _build_http_proxy_url(
@@ -49,21 +59,8 @@ def _build_http_proxy_url(
     port: int,
     proxy_domain: str | None = None,
 ) -> str:
-    """Build the HTTP proxy URL (``http://`` / ``https://``).
-
-    Scheme is derived from ``base_url``. The host portion comes from
-    ``proxy_domain`` if provided; otherwise falls back to the ``base_url``
-    host (with port). Any path on ``base_url`` is discarded.
-    """
-    parsed = httpx.URL(base_url)
-    if proxy_domain:
-        host = proxy_domain
-    else:
-        host = parsed.host
-        if parsed.port:
-            host = f"{host}:{parsed.port}"
-    scheme = "http" if parsed.scheme in ("http", "ws") else "https"
-    return f"{scheme}://{port}-{capsule_id}.{host}"
+    """Build the HTTP proxy URL (``http://`` / ``https://``)."""
+    return _proxy_url(base_url, capsule_id, port, proxy_domain, websocket=False)
 
 
 _RESUME_INTERVAL = 0.5

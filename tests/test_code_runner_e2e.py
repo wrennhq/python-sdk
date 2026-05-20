@@ -481,58 +481,41 @@ class TestCodeRunnerAsync:
 
     @pytest.mark.asyncio
     async def test_async_simple(self):
-        c = await AsyncCapsule.create(wait=True)
-        try:
+        async with await AsyncCapsule.create(wait=True) as c:
             ex = await c.run_code("21 * 2")
             assert ex.error is None
             assert ex.text == "42"
-        finally:
-            await c.close()
-            await c.destroy()
 
     @pytest.mark.asyncio
     async def test_async_persistence(self):
-        c = await AsyncCapsule.create(wait=True)
-        try:
+        async with await AsyncCapsule.create(wait=True) as c:
             await c.run_code("v = 'persisted'")
             ex = await c.run_code("v")
             assert ex.text == "'persisted'"
-        finally:
-            await c.close()
-            await c.destroy()
 
     @pytest.mark.asyncio
     async def test_async_callbacks(self):
-        c = await AsyncCapsule.create(wait=True)
-        try:
+        async with await AsyncCapsule.create(wait=True) as c:
             chunks: list[str] = []
             await c.run_code(
                 "print('async out')",
                 on_stdout=chunks.append,
             )
             assert any("async out" in s for s in chunks)
-        finally:
-            await c.close()
-            await c.destroy()
 
     @pytest.mark.asyncio
     async def test_async_context_manager(self):
-        c = await AsyncCapsule.create(wait=True)
-        async with c:
+        async with await AsyncCapsule.create(wait=True) as c:
             ex = await c.run_code("'in-ctx'")
             assert ex.text == "'in-ctx'"
 
     @pytest.mark.asyncio
     async def test_async_concurrent_capsules(self):
-        c1 = await AsyncCapsule.create(wait=True)
-        c2 = await AsyncCapsule.create(wait=True)
-        try:
-            r1, r2 = await asyncio.gather(
-                c1.run_code("1 + 1"),
-                c2.run_code("10 * 10"),
-            )
-            assert r1.text == "2"
-            assert r2.text == "100"
-        finally:
-            await asyncio.gather(c1.close(), c2.close(), return_exceptions=True)
-            await asyncio.gather(c1.destroy(), c2.destroy(), return_exceptions=True)
+        async with await AsyncCapsule.create(wait=True) as c1:
+            async with await AsyncCapsule.create(wait=True) as c2:
+                r1, r2 = await asyncio.gather(
+                    c1.run_code("1 + 1"),
+                    c2.run_code("10 * 10"),
+                )
+                assert r1.text == "2"
+                assert r2.text == "100"

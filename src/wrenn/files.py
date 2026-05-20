@@ -39,6 +39,46 @@ def _find_entry(list_fn, path: str) -> FileEntry | None:
     return None
 
 
+async def _async_find_entry(list_fn, path: str) -> FileEntry | None:
+    parent = os.path.dirname(path)
+    name = os.path.basename(path)
+    try:
+        for entry in await list_fn(parent, depth=1):
+            if entry.name == name:
+                return entry
+    except WrennNotFoundError:
+        return None
+    return None
+
+
+_MULTIPART_FILE_HEADER = (
+    b'Content-Disposition: form-data; name="file"; filename="upload.bin"\r\n'
+    b"Content-Type: application/octet-stream\r\n\r\n"
+)
+
+
+def _multipart_frame(path: str, boundary: bytes) -> tuple[bytes, bytes]:
+    """Return (preamble, trailer) bytes wrapping the file body chunks."""
+    preamble = (
+        b"--" + boundary + b"\r\n"
+        b'Content-Disposition: form-data; name="path"\r\n\r\n'
+        + path.encode("utf-8")
+        + b"\r\n--"
+        + boundary
+        + b"\r\n"
+        + _MULTIPART_FILE_HEADER
+    )
+    trailer = b"\r\n--" + boundary + b"--\r\n"
+    return preamble, trailer
+
+
+def _multipart_headers(boundary: bytes) -> dict[str, str]:
+    return {
+        "Content-Type": f"multipart/form-data; boundary={boundary.decode('utf-8')}",
+        "Transfer-Encoding": "chunked",
+    }
+
+
 class Files:
     """Sync filesystem interface. Accessed via ``capsule.files``."""
 
@@ -183,25 +223,18 @@ class Files:
             stream (Iterator[bytes]): Iterable of byte chunks to upload.
         """
         boundary = os.urandom(16).hex().encode("utf-8")
+        preamble, trailer = _multipart_frame(path, boundary)
 
         def _multipart() -> Iterator[bytes]:
-            yield b"--" + boundary + b"\r\n"
-            yield b'Content-Disposition: form-data; name="path"\r\n\r\n'
-            yield path.encode("utf-8") + b"\r\n"
-            yield b"--" + boundary + b"\r\n"
-            yield b'Content-Disposition: form-data; name="file"; filename="upload.bin"\r\n'
-            yield b"Content-Type: application/octet-stream\r\n\r\n"
+            yield preamble
             for chunk in stream:
                 yield chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
-            yield b"\r\n--" + boundary + b"--\r\n"
+            yield trailer
 
         resp = self._http.post(
             f"/v1/capsules/{self._capsule_id}/files/stream/write",
             content=_multipart(),
-            headers={
-                "Content-Type": f"multipart/form-data; boundary={boundary.decode('utf-8')}",
-                "Transfer-Encoding": "chunked",
-            },
+            headers=_multipart_headers(boundary),
         )
         _raise_for_status(resp)
 
@@ -340,11 +373,9 @@ class AsyncFiles:
             json={"path": path},
         )
         if _is_already_exists(resp):
-            parent = os.path.dirname(path)
-            name = os.path.basename(path)
-            for entry in await self.list(parent, depth=1):
-                if entry.name == name:
-                    return entry
+            existing = await _async_find_entry(self.list, path)
+            if existing is not None:
+                return existing
         parsed = MakeDirResponse.model_validate(handle_response(resp))
         if parsed.entry is None:
             raise RuntimeError("mkdir response missing entry")
@@ -377,25 +408,18 @@ class AsyncFiles:
                 upload.
         """
         boundary = os.urandom(16).hex().encode("utf-8")
+        preamble, trailer = _multipart_frame(path, boundary)
 
         async def _multipart() -> AsyncIterator[bytes]:
-            yield b"--" + boundary + b"\r\n"
-            yield b'Content-Disposition: form-data; name="path"\r\n\r\n'
-            yield path.encode("utf-8") + b"\r\n"
-            yield b"--" + boundary + b"\r\n"
-            yield b'Content-Disposition: form-data; name="file"; filename="upload.bin"\r\n'
-            yield b"Content-Type: application/octet-stream\r\n\r\n"
+            yield preamble
             async for chunk in stream:
                 yield chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
-            yield b"\r\n--" + boundary + b"--\r\n"
+            yield trailer
 
         resp = await self._http.post(
             f"/v1/capsules/{self._capsule_id}/files/stream/write",
             content=_multipart(),
-            headers={
-                "Content-Type": f"multipart/form-data; boundary={boundary.decode('utf-8')}",
-                "Transfer-Encoding": "chunked",
-            },
+            headers=_multipart_headers(boundary),
         )
         _raise_for_status(resp)
 

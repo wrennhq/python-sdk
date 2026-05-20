@@ -489,7 +489,13 @@ Authenticates with an API key.
 **Arguments**:
 
 - `api_key` - API key (``wrn_...``). Falls back to ``WRENN_API_KEY`` env var.
-- `base_url` - Wrenn API base URL.
+- `base_url` - Wrenn API base URL. Falls back to ``WRENN_BASE_URL`` env var.
+- `proxy_domain` - Host suffix for capsule proxy URLs
+  (``{port}-{capsule_id}.<domain>``). Falls back to
+  ``WRENN_PROXY_DOMAIN`` env, then ``wrenn.dev`` when ``base_url``
+  is the default ``app.wrenn.dev`` host, else the ``base_url`` host.
+- `timeout` - HTTP timeout. Accepts ``httpx.Timeout``, a float (seconds),
+  or ``None`` for the default (30s read/write/pool, 10s connect).
 
 <a id="wrenn.client.WrennClient.http"></a>
 
@@ -528,6 +534,12 @@ Authenticates with an API key.
 
 - `api_key` - API key (``wrn_...``). Falls back to ``WRENN_API_KEY`` env var.
 - `base_url` - Wrenn API base URL. Falls back to ``WRENN_BASE_URL`` env var.
+- `proxy_domain` - Host suffix for capsule proxy URLs
+  (``{port}-{capsule_id}.<domain>``). Falls back to
+  ``WRENN_PROXY_DOMAIN`` env, then ``wrenn.dev`` when ``base_url``
+  is the default ``app.wrenn.dev`` host, else the ``base_url`` host.
+- `timeout` - HTTP timeout. Accepts ``httpx.Timeout``, a float (seconds),
+  or ``None`` for the default (30s read/write/pool, 10s connect).
 
 <a id="wrenn.client.AsyncWrennClient.http"></a>
 
@@ -2624,10 +2636,15 @@ async def run_code(
 
 Execute code in a persistent Jupyter kernel (async).
 
+Variables, imports, and function definitions survive across calls.
+
 **Arguments**:
 
 - `code` - Code string to execute.
-- `language` - Execution backend language. Currently only ``"python"``.
+- `language` - Execution backend language. Currently only ``"python"``
+  is supported; passing anything else raises ``ValueError``.
+  To target a non-Python kernel, set ``kernel=`` on the
+  capsule constructor.
 - `timeout` - Maximum seconds to wait for execution to complete.
 - `jupyter_timeout` - Maximum seconds to wait for Jupyter to become
   available.
@@ -2820,12 +2837,42 @@ Build a Jupyter ``execute_request`` message envelope.
   expected to read ``msg["header"]["msg_id"]`` to correlate
   responses.
 
+<a id="wrenn.code_runner._protocol.pick_kernel_id"></a>
+
+#### pick\_kernel\_id
+
+```python
+def pick_kernel_id(kernels: list[dict], kernel_name: str) -> str | None
+```
+
+Return the ID of the first kernel matching ``kernel_name``, else ``None``.
+
+<a id="wrenn.code_runner._protocol.apply_kernel_message"></a>
+
+#### apply\_kernel\_message
+
+```python
+def apply_kernel_message(data: dict, msg_id: str, execution: Execution,
+                         emit_error: Callable[[ExecutionError], None],
+                         on_result: Callable[[Result], Any] | None,
+                         on_stdout: Callable[[str], Any] | None,
+                         on_stderr: Callable[[str], Any] | None) -> bool
+```
+
+Apply one Jupyter IOPub message to ``execution``.
+
+Returns ``True`` when the message marks idle (cell done); the caller
+should stop reading further messages.
+
 <a id="wrenn.code_runner._protocol.build_ws_url"></a>
 
 #### build\_ws\_url
 
 ```python
-def build_ws_url(base_url: str, capsule_id: str, kernel_id: str) -> str
+def build_ws_url(base_url: str,
+                 capsule_id: str,
+                 kernel_id: str,
+                 proxy_domain: str | None = None) -> str
 ```
 
 Build the Jupyter kernel WebSocket URL for the given capsule.

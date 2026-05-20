@@ -137,21 +137,26 @@ class AsyncCapsule:
             AsyncCapsule: A new capsule instance.
         """
         client = AsyncWrennClient(api_key=api_key, base_url=base_url)
-        info = await client.capsules.create(
-            template=template,
-            vcpus=vcpus,
-            memory_mb=memory_mb,
-            timeout_sec=timeout,
-        )
-        assert info.id is not None
-        capsule = cls(
-            _capsule_id=info.id,
-            _client=client,
-            _info=info,
-        )
-        if wait:
-            await capsule.wait_ready()
-        return capsule
+        try:
+            info = await client.capsules.create(
+                template=template,
+                vcpus=vcpus,
+                memory_mb=memory_mb,
+                timeout_sec=timeout,
+            )
+            if info.id is None:
+                raise RuntimeError("API returned a capsule without an ID")
+            capsule = cls(
+                _capsule_id=info.id,
+                _client=client,
+                _info=info,
+            )
+            if wait:
+                await capsule.wait_ready()
+            return capsule
+        except BaseException:
+            await client.aclose()
+            raise
 
     @classmethod
     async def connect(
@@ -176,22 +181,26 @@ class AsyncCapsule:
             WrennNotFoundError: If no capsule with the given ID exists.
         """
         client = AsyncWrennClient(api_key=api_key, base_url=base_url)
-        info = await client.capsules.get(capsule_id)
+        try:
+            info = await client.capsules.get(capsule_id)
 
-        capsule = cls(
-            _capsule_id=capsule_id,
-            _client=client,
-            _info=info,
-        )
+            capsule = cls(
+                _capsule_id=capsule_id,
+                _client=client,
+                _info=info,
+            )
 
-        if info.status == Status.pausing:
-            info = await capsule._wait_for_status({Status.paused}, _PAUSE_INTERVAL)
-        if info.status == Status.paused:
-            await client.capsules.resume(capsule_id)
-        if info.status != Status.running:
-            await capsule.wait_ready()
+            if info.status == Status.pausing:
+                info = await capsule._wait_for_status({Status.paused}, _PAUSE_INTERVAL)
+            if info.status == Status.paused:
+                await client.capsules.resume(capsule_id)
+            if info.status != Status.running:
+                await capsule.wait_ready()
 
-        return capsule
+            return capsule
+        except BaseException:
+            await client.aclose()
+            raise
 
     # ── Dual instance/static lifecycle ──────────────────────────
 
