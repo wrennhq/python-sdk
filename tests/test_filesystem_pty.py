@@ -74,32 +74,32 @@ class TestFilesList:
                 "entries": [
                     {
                         "name": "main.py",
-                        "path": "/home/user/main.py",
+                        "path": "/home/wrenn-user/main.py",
                         "type": "file",
                         "size": 1024,
                         "mode": 33188,
                         "permissions": "-rw-r--r--",
-                        "owner": "root",
-                        "group": "root",
+                        "owner": "wrenn-user",
+                        "group": "wrenn-user",
                         "modified_at": 1712899200,
                         "symlink_target": None,
                     },
                     {
                         "name": "config",
-                        "path": "/home/user/config",
+                        "path": "/home/wrenn-user/config",
                         "type": "directory",
                         "size": 4096,
                         "mode": 16877,
                         "permissions": "drwxr-xr-x",
-                        "owner": "root",
-                        "group": "root",
+                        "owner": "wrenn-user",
+                        "group": "wrenn-user",
                         "modified_at": 1712899100,
                         "symlink_target": None,
                     },
                 ]
             },
         )
-        entries = cap.files.list("/home/user")
+        entries = cap.files.list("/home/wrenn-user")
         assert len(entries) == 2
         assert isinstance(entries[0], FileEntry)
         assert entries[0].name == "main.py"
@@ -113,7 +113,7 @@ class TestFilesList:
         route = respx.post(f"{BASE}/v1/capsules/cl-abc/files/list").respond(
             200, json={"entries": []}
         )
-        cap.files.list("/home/user", depth=3)
+        cap.files.list("/home/wrenn-user", depth=3)
         body = json.loads(route.calls[0].request.content)
         assert body["depth"] == 3
 
@@ -136,19 +136,19 @@ class TestFilesMakeDir:
             json={
                 "entry": {
                     "name": "data",
-                    "path": "/home/user/data",
+                    "path": "/home/wrenn-user/data",
                     "type": "directory",
                     "size": 4096,
                     "mode": 16877,
                     "permissions": "drwxr-xr-x",
-                    "owner": "root",
-                    "group": "root",
+                    "owner": "wrenn-user",
+                    "group": "wrenn-user",
                     "modified_at": 1712899200,
                     "symlink_target": None,
                 }
             },
         )
-        entry = cap.files.make_dir("/home/user/data")
+        entry = cap.files.make_dir("/home/wrenn-user/data")
         assert isinstance(entry, FileEntry)
         assert entry.name == "data"
         assert entry.type == "directory"
@@ -166,20 +166,20 @@ class TestFilesMakeDir:
                 "entries": [
                     {
                         "name": "data",
-                        "path": "/home/user/data",
+                        "path": "/home/wrenn-user/data",
                         "type": "directory",
                         "size": 4096,
                         "mode": 16877,
                         "permissions": "drwxr-xr-x",
-                        "owner": "root",
-                        "group": "root",
+                        "owner": "wrenn-user",
+                        "group": "wrenn-user",
                         "modified_at": 1712899200,
                         "symlink_target": None,
                     }
                 ]
             },
         )
-        entry = cap.files.make_dir("/home/user/data")
+        entry = cap.files.make_dir("/home/wrenn-user/data")
         assert entry.name == "data"
 
 
@@ -188,7 +188,7 @@ class TestFilesRemove:
     def test_remove_succeeds(self):
         cap = _make_capsule()
         route = respx.post(f"{BASE}/v1/capsules/cl-abc/files/remove").respond(204)
-        cap.files.remove("/home/user/old_data")
+        cap.files.remove("/home/wrenn-user/old_data")
         assert route.called
 
     @respx.mock
@@ -411,7 +411,7 @@ class TestPtySessionSendStart:
             cols=120,
             rows=40,
             envs={"TERM": "xterm-256color"},
-            cwd="/home/user",
+            cwd="/home/wrenn-user",
         )
         sent = json.loads(ws.send_text.call_args[0][0])
         assert sent["cmd"] == "/bin/zsh"
