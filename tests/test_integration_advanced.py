@@ -75,7 +75,7 @@ class TestCommandEnvironment:
 
     def test_default_cwd_is_home(self):
         result = self.capsule.commands.run("pwd")
-        assert result.stdout.strip() == "/root"
+        assert result.stdout.strip() == "/home/wrenn-user"
 
     def test_cwd_resolves_relative_paths(self):
         self.capsule.files.make_dir("/tmp/cwd_probe/sub")
@@ -90,7 +90,7 @@ class TestCommandEnvironment:
         # Each run is a fresh process — `cd` in one does not affect the next.
         self.capsule.commands.run("cd /tmp")
         result = self.capsule.commands.run("pwd")
-        assert result.stdout.strip() == "/root"
+        assert result.stdout.strip() == "/home/wrenn-user"
 
     def test_single_env_var(self):
         result = self.capsule.commands.run("echo $GREETING", envs={"GREETING": "hi"})
@@ -115,8 +115,28 @@ class TestCommandEnvironment:
     def test_base_environment_present(self):
         result = self.capsule.commands.run("echo $HOME; echo $PATH")
         lines = result.stdout.strip().splitlines()
-        assert lines[0] == "/root"
+        assert lines[0] == "/home/wrenn-user"
         assert "/usr/bin" in lines[1]
+
+    def test_sudo_available(self):
+        result = self.capsule.commands.run("which sudo")
+        assert result.exit_code == 0
+
+    def test_sudo_runs_without_password(self):
+        result = self.capsule.commands.run("sudo whoami")
+        assert result.exit_code == 0
+        assert result.stdout.strip() == "root"
+
+    def test_sudo_can_write_to_protected_path(self):
+        result = self.capsule.commands.run(
+            "sudo touch /opt/sudo-test-marker && cat /opt/sudo-test-marker"
+        )
+        assert result.exit_code == 0
+
+    def test_sudo_can_read_root_owned_file(self):
+        result = self.capsule.commands.run("sudo cat /etc/shadow | head -1")
+        assert result.exit_code == 0
+        assert "root" in result.stdout
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -143,7 +163,7 @@ class TestLongRunningCommands:
 
     def test_apt_get_install(self):
         result = self.capsule.commands.run(
-            "apt-get update -qq && apt-get install -y -qq cowsay", timeout=300
+            "sudo apt-get update -qq && sudo apt-get install -y -qq cowsay", timeout=300
         )
         assert result.exit_code == 0
 
@@ -388,7 +408,9 @@ class TestGitClone:
     def setup_class(cls):
         _ensure_env()
         cls.capsule = Capsule(wait=True)
-        cls.capsule.git.clone(WRENN_REPO, "/root/wrenn", depth=1, timeout=300)
+        cls.capsule.git.clone(
+            WRENN_REPO, "/home/wrenn-user/wrenn", depth=1, timeout=300
+        )
 
     @classmethod
     def teardown_class(cls):
@@ -398,66 +420,74 @@ class TestGitClone:
             pass
 
     def test_clone_created_repo(self):
-        assert self.capsule.files.exists("/root/wrenn/.git")
+        assert self.capsule.files.exists("/home/wrenn-user/wrenn/.git")
 
     def test_clone_checked_out_files(self):
-        entries = self.capsule.files.list("/root/wrenn")
+        entries = self.capsule.files.list("/home/wrenn-user/wrenn")
         names = [e.name for e in entries]
         assert "README.md" in names
 
     def test_status_of_clone_is_clean(self):
-        status = self.capsule.git.status(cwd="/root/wrenn")
+        status = self.capsule.git.status(cwd="/home/wrenn-user/wrenn")
         assert status.branch == "main"
         assert status.is_clean
 
     def test_branches_lists_main(self):
-        branches = self.capsule.git.branches(cwd="/root/wrenn")
+        branches = self.capsule.git.branches(cwd="/home/wrenn-user/wrenn")
         names = [b.name for b in branches]
         assert "main" in names
         assert any(b.is_current for b in branches)
 
     def test_remote_get_origin(self):
-        url = self.capsule.git.remote_get("origin", cwd="/root/wrenn")
+        url = self.capsule.git.remote_get("origin", cwd="/home/wrenn-user/wrenn")
         assert url is not None
         assert "wrennhq/wrenn" in url
 
     def test_git_log_has_commit(self):
-        result = self.capsule.commands.run("git log --oneline -1", cwd="/root/wrenn")
+        result = self.capsule.commands.run(
+            "git log --oneline -1", cwd="/home/wrenn-user/wrenn"
+        )
         assert result.exit_code == 0
         assert result.stdout.strip()
 
     def test_modify_add_commit(self):
         marker = uuid.uuid4().hex
         self.capsule.git.configure_user(
-            "CI Bot", "ci@example.com", cwd="/root/wrenn", scope="local"
+            "CI Bot", "ci@example.com", cwd="/home/wrenn-user/wrenn", scope="local"
         )
-        self.capsule.files.write(f"/root/wrenn/sdk_probe_{marker}.txt", marker)
-        self.capsule.git.add([f"sdk_probe_{marker}.txt"], cwd="/root/wrenn")
+        self.capsule.files.write(
+            f"/home/wrenn-user/wrenn/sdk_probe_{marker}.txt", marker
+        )
+        self.capsule.git.add([f"sdk_probe_{marker}.txt"], cwd="/home/wrenn-user/wrenn")
 
-        staged = self.capsule.git.status(cwd="/root/wrenn")
+        staged = self.capsule.git.status(cwd="/home/wrenn-user/wrenn")
         assert staged.has_staged
 
-        result = self.capsule.git.commit("probe commit", cwd="/root/wrenn")
+        result = self.capsule.git.commit("probe commit", cwd="/home/wrenn-user/wrenn")
         assert result.exit_code == 0
 
-        after = self.capsule.git.status(cwd="/root/wrenn")
+        after = self.capsule.git.status(cwd="/home/wrenn-user/wrenn")
         assert after.is_clean
         assert after.ahead >= 1
 
     def test_create_and_checkout_branch_in_clone(self):
-        self.capsule.git.create_branch("sdk-feature", cwd="/root/wrenn")
-        branches = self.capsule.git.branches(cwd="/root/wrenn")
+        self.capsule.git.create_branch("sdk-feature", cwd="/home/wrenn-user/wrenn")
+        branches = self.capsule.git.branches(cwd="/home/wrenn-user/wrenn")
         current = [b for b in branches if b.is_current]
         assert current and current[0].name == "sdk-feature"
-        self.capsule.git.checkout_branch("main", cwd="/root/wrenn")
+        self.capsule.git.checkout_branch("main", cwd="/home/wrenn-user/wrenn")
 
     def test_diff_via_commands(self):
-        self.capsule.files.write("/root/wrenn/README.md", "overwritten\n")
+        self.capsule.files.write("/home/wrenn-user/wrenn/README.md", "overwritten\n")
         try:
-            result = self.capsule.commands.run("git diff --stat", cwd="/root/wrenn")
+            result = self.capsule.commands.run(
+                "git diff --stat", cwd="/home/wrenn-user/wrenn"
+            )
             assert "README.md" in result.stdout
         finally:
-            self.capsule.git.restore(["README.md"], worktree=True, cwd="/root/wrenn")
+            self.capsule.git.restore(
+                ["README.md"], worktree=True, cwd="/home/wrenn-user/wrenn"
+            )
 
 
 class TestGitErrors:
@@ -481,7 +511,7 @@ class TestGitErrors:
         with pytest.raises(GitError):
             self.capsule.git.clone(
                 "https://github.com/wrennhq/this-repo-does-not-exist-xyz",
-                "/root/missing",
+                "/home/wrenn-user/missing",
                 timeout=120,
             )
 
@@ -493,7 +523,11 @@ class TestGitErrors:
 
     def test_clone_with_branch(self):
         self.capsule.git.clone(
-            WRENN_REPO, "/root/wrenn-main", branch="main", depth=1, timeout=300
+            WRENN_REPO,
+            "/home/wrenn-user/wrenn-main",
+            branch="main",
+            depth=1,
+            timeout=300,
         )
-        status = self.capsule.git.status(cwd="/root/wrenn-main")
+        status = self.capsule.git.status(cwd="/home/wrenn-user/wrenn-main")
         assert status.branch == "main"

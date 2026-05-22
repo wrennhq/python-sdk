@@ -323,7 +323,7 @@ class TestFiles:
 class TestGit:
     """Shared capsule for git operation tests.
 
-    Initializes a repo at /root (default cwd) since the exec API
+    Initializes a repo at /home/wrenn-user (default cwd) since the exec API
     does not support the cwd parameter.
     """
 
@@ -344,14 +344,14 @@ class TestGit:
             pass
 
     def test_init_created_repo(self):
-        assert self.capsule.files.exists("/root/.git")
+        assert self.capsule.files.exists("/home/wrenn-user/.git")
 
     def test_status_clean(self):
         status = self.capsule.git.status()
         assert status.branch == "main"
 
     def test_add_and_commit(self):
-        self.capsule.files.write("/root/hello.txt", "hello git")
+        self.capsule.files.write("/home/wrenn-user/hello.txt", "hello git")
         self.capsule.git.add(all=True)
         result = self.capsule.git.commit("initial commit")
         assert result.exit_code == 0
@@ -361,14 +361,14 @@ class TestGit:
         assert status.is_clean
 
     def test_status_with_changes(self):
-        self.capsule.files.write("/root/dirty.txt", "uncommitted")
+        self.capsule.files.write("/home/wrenn-user/dirty.txt", "uncommitted")
         try:
             status = self.capsule.git.status()
             assert not status.is_clean
             paths = [f.path for f in status.files]
             assert "dirty.txt" in paths
         finally:
-            self.capsule.files.remove("/root/dirty.txt")
+            self.capsule.files.remove("/home/wrenn-user/dirty.txt")
 
     def test_branches(self):
         branches = self.capsule.git.branches()
