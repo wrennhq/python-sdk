@@ -27,7 +27,6 @@ from wrenn.models._generated import (
     Status1,
     Template,
     Type,
-    Type1,
     Type2,
 )
 
@@ -60,6 +59,5 @@ __all__ = [
     "Status1",
     "Template",
     "Type",
-    "Type1",
     "Type2",
 ]
