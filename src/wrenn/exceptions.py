@@ -164,4 +164,17 @@ def __getattr__(name: str) -> type:
             stacklevel=2,
         )
         return WrennHostHasCapsulesError
+    if name in ("GitError", "GitCommandError", "GitAuthError"):
+        from wrenn._git.exceptions import (
+            GitAuthError as _GitAuthError,
+            GitCommandError as _GitCommandError,
+            GitError as _GitError,
+        )
+
+        _m: dict[str, type] = {
+            "GitError": _GitError,
+            "GitCommandError": _GitCommandError,
+            "GitAuthError": _GitAuthError,
+        }
+        return _m[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
