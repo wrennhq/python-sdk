@@ -172,6 +172,8 @@ import sys
 # Stream a new command
 for event in capsule.commands.stream("python", args=["-u", "train.py"]):
     match event.type:
+        case "start":
+            print(f"PID: {event.pid}")
         case "stdout":
             print(event.data, end="")
         case "stderr":
@@ -181,8 +183,11 @@ for event in capsule.commands.stream("python", args=["-u", "train.py"]):
 
 # Connect to a running background process
 for event in capsule.commands.connect(handle.pid):
-    if event.type == "stdout":
-        print(event.data, end="")
+    match event.type:
+        case "start":
+            print(f"PID: {event.pid}")
+        case "stdout":
+            print(event.data, end="")
 ```
 
 #### Process Management
@@ -211,6 +216,7 @@ capsule.files.exists("/app/main.py")  # True
 
 # List directory
 entries = capsule.files.list("/home/user", depth=1)
+# FileEntry has: name, type (file/dir), size, modified_at
 for entry in entries:
     print(entry.name, entry.type, entry.size)
 
@@ -289,7 +295,26 @@ value = capsule.git.get_config("user.name", cwd="/app")  # str | None
 
 capsule.git.remote_add("upstream", "https://github.com/org/repo.git", cwd="/app")
 url = capsule.git.remote_get("origin", cwd="/app")  # str | None
+
+# Reset and restore
+capsule.git.reset(mode="hard", ref="HEAD~1", cwd="/app")
+capsule.git.restore(["file.txt"], staged=True, cwd="/app")
 ```
+
+#### Persistent Credential Store
+
+For workflows that need repeated authenticated operations, you can persist credentials via the git credential store:
+
+```python
+capsule.git.dangerously_authenticate(
+    username="user",
+    password="ghp_token",
+    host="github.com",
+    protocol="https",
+)
+```
+
+> **Warning:** Credentials are written in plaintext inside the capsule and are accessible to any process running there. Prefer per-operation `username`/`password` on `clone`, `push`, and `pull` instead.
 
 Git errors raise `GitCommandError` (or `GitAuthError` for authentication failures), both inheriting from `GitError`:
 
@@ -308,7 +333,7 @@ except GitAuthError as e:
 ```python
 import sys
 
-with capsule.pty(cmd="/bin/bash", cols=120, rows=40, cwd="/home/user") as term:
+with capsule.pty(cmd="/bin/bash", cols=80, rows=24, cwd="/home/user") as term:
     term.write(b"ls -la\n")
     for event in term:
         if event.type == "output":
@@ -451,9 +476,10 @@ result = capsule.run_code("print('running on custom template')")
 | `logs` | `Logs` | `.stdout: list[str]` and `.stderr: list[str]` chunks |
 | `error` | `ExecutionError \| None` | `.name`, `.value`, `.traceback` |
 | `execution_count` | `int \| None` | Jupyter cell execution counter |
+| `timed_out` | `bool` | ``True`` when execution was cut short by the timeout |
 | `text` | `str \| None` | (property) `text/plain` of the main `execute_result` |
 
-Each `Result` has typed MIME fields: `text`, `html`, `markdown`, `svg`, `png`, `jpeg`, `pdf`, `latex`, `json`, `javascript`, plus `extra` for unknown types. The `text` field is Jupyter's `text/plain` bundle verbatim — the Python `repr()` of the cell's last expression. So `run_code("'hi'").text` is `"'hi'"` (with quotes), and `run_code("42").text` is `"42"`. This preserves the distinction between the string `'2'` and the int `2`.
+Each `Result` has typed MIME fields: `text`, `html`, `markdown`, `svg`, `png`, `jpeg`, `gif`, `pdf`, `latex`, `json`, `javascript`, `plotly`, plus `extra` for unknown types. The `text` field is Jupyter's `text/plain` bundle verbatim — the Python `repr()` of the cell's last expression. So `run_code("'hi'").text` is `"'hi'"` (with quotes), and `run_code("42").text` is `"42"`. This preserves the distinction between the string `'2'` and the int `2`.
 
 ### Code Runner + Commands/Files
 
@@ -527,15 +553,15 @@ The SDK maps server error codes to typed exceptions:
 ```python
 from wrenn import (
     WrennError,
-    WrennValidationError,      # 400
-    WrennAuthenticationError,  # 401
-    WrennForbiddenError,       # 403
-    WrennNotFoundError,        # 404
-    WrennConflictError,        # 409
-    WrennHostHasCapsulesError, # 409 (host has running capsules)
-    WrennAgentError,           # 502
-    WrennInternalError,        # 500
-    WrennHostUnavailableError, # 503
+    WrennValidationError,       # 400
+    WrennAuthenticationError,   # 401
+    WrennForbiddenError,        # 403
+    WrennNotFoundError,         # 404
+    WrennConflictError,         # 409
+    WrennHostHasCapsulesError,  # 409 (host has running capsules)
+    WrennInternalError,         # 500
+    WrennAgentError,            # 502
+    WrennHostUnavailableError,  # 503
 )
 
 try:
@@ -603,7 +629,7 @@ with WrennClient(api_key="wrn_...") as client:
 
     # Snapshots
     template = client.snapshots.create(capsule_id="cl-abc", name="my-snap")
-    templates = client.snapshots.list()
+    templates = client.snapshots.list(type="custom")  # optional type filter
     client.snapshots.delete("my-snap")
 ```
 
