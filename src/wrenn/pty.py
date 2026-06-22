@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 from collections.abc import AsyncIterator, Iterator
 from enum import StrEnum
@@ -8,6 +7,7 @@ from typing import Any
 
 import httpx_ws
 from pydantic import BaseModel
+from wsproto.events import BytesMessage, TextMessage
 
 # A clean (``WebSocketDisconnect``) or abrupt (``WebSocketNetworkError``) close
 # both mean the PTY stream has ended; iteration must stop on either.
@@ -31,7 +31,8 @@ class PtyEvent(BaseModel):
     fatal: bool | None = None
 
 
-def _parse_pty_event(raw: dict[str, Any]) -> PtyEvent:
+def _parse_control_event(raw: dict[str, Any]) -> PtyEvent:
+    """Parse a JSON control frame from the server."""
     msg_type = raw.get("type", "")
     if msg_type == "started":
         return PtyEvent(
@@ -39,10 +40,6 @@ def _parse_pty_event(raw: dict[str, Any]) -> PtyEvent:
             pid=raw.get("pid"),
             tag=raw.get("tag"),
         )
-    if msg_type == "output":
-        raw_data = raw.get("data", "")
-        decoded = base64.b64decode(raw_data) if raw_data else b""
-        return PtyEvent(type=PtyEventType.output, data=decoded)
     if msg_type == "exit":
         return PtyEvent(type=PtyEventType.exit, exit_code=raw.get("exit_code", -1))
     if msg_type == "error":
@@ -133,10 +130,10 @@ class PtySession:
         """Send raw bytes to the PTY stdin.
 
         Args:
-            data: Raw bytes to send. Base64-encoded internally.
+            data: Raw bytes to send. Delivered as a binary WebSocket frame
+                verbatim — no JSON wrapping, no base64.
         """
-        encoded = base64.b64encode(data).decode("ascii")
-        self._ws.send_text(json.dumps({"type": "input", "data": encoded}))
+        self._ws.send_bytes(data)
 
     def resize(self, cols: int, rows: int) -> None:
         """Resize the PTY terminal.
@@ -160,27 +157,34 @@ class PtySession:
         return self
 
     def __next__(self) -> PtyEvent:
-        if self._done:
-            raise StopIteration
-        try:
-            raw = self._ws.receive_text()
-        except _WS_CLOSED:
-            raise StopIteration
-        event = _parse_pty_event(json.loads(raw))
-        if event.type == PtyEventType.started:
-            if event.tag is not None:
-                self._tag = event.tag
-            if event.pid is not None:
-                self._pid = event.pid
-        if event.type == PtyEventType.ping:
-            self._send_pong()
-        if event.type == PtyEventType.exit:
-            self._done = True
+        while True:
+            if self._done:
+                raise StopIteration
+            try:
+                msg = self._ws.receive()
+            except _WS_CLOSED:
+                raise StopIteration
+            if isinstance(msg, BytesMessage):
+                return PtyEvent(type=PtyEventType.output, data=msg.data)
+            if isinstance(msg, TextMessage):
+                event = _parse_control_event(json.loads(msg.data))
+            else:
+                # Ignore other wsproto events (Ping/Pong/etc handled by httpx_ws).
+                continue
+            if event.type == PtyEventType.started:
+                if event.tag is not None:
+                    self._tag = event.tag
+                if event.pid is not None:
+                    self._pid = event.pid
+            if event.type == PtyEventType.ping:
+                self._send_pong()
+            if event.type == PtyEventType.exit:
+                self._done = True
+                return event
+            if event.type == PtyEventType.error and event.fatal:
+                self._done = True
+                return event
             return event
-        if event.type == PtyEventType.error and event.fatal:
-            self._done = True
-            return event
-        return event
 
     def __enter__(self) -> PtySession:
         return self
@@ -269,10 +273,10 @@ class AsyncPtySession:
         """Send raw bytes to the PTY stdin.
 
         Args:
-            data: Raw bytes to send. Base64-encoded internally.
+            data: Raw bytes to send. Delivered as a binary WebSocket frame
+                verbatim — no JSON wrapping, no base64.
         """
-        encoded = base64.b64encode(data).decode("ascii")
-        await self._ws.send_text(json.dumps({"type": "input", "data": encoded}))
+        await self._ws.send_bytes(data)
 
     async def resize(self, cols: int, rows: int) -> None:
         """Resize the PTY terminal.
@@ -298,27 +302,34 @@ class AsyncPtySession:
         return self
 
     async def __anext__(self) -> PtyEvent:
-        if self._done:
-            raise StopAsyncIteration
-        try:
-            raw = await self._ws.receive_text()
-        except _WS_CLOSED:
-            raise StopAsyncIteration
-        event = _parse_pty_event(json.loads(raw))
-        if event.type == PtyEventType.started:
-            if event.tag is not None:
-                self._tag = event.tag
-            if event.pid is not None:
-                self._pid = event.pid
-        if event.type == PtyEventType.ping:
-            await self._send_pong()
-        if event.type == PtyEventType.exit:
-            self._done = True
+        while True:
+            if self._done:
+                raise StopAsyncIteration
+            try:
+                msg = await self._ws.receive()
+            except _WS_CLOSED:
+                raise StopAsyncIteration
+            if isinstance(msg, BytesMessage):
+                return PtyEvent(type=PtyEventType.output, data=msg.data)
+            if isinstance(msg, TextMessage):
+                event = _parse_control_event(json.loads(msg.data))
+            else:
+                # Ignore other wsproto events (Ping/Pong/etc handled by httpx_ws).
+                continue
+            if event.type == PtyEventType.started:
+                if event.tag is not None:
+                    self._tag = event.tag
+                if event.pid is not None:
+                    self._pid = event.pid
+            if event.type == PtyEventType.ping:
+                await self._send_pong()
+            if event.type == PtyEventType.exit:
+                self._done = True
+                return event
+            if event.type == PtyEventType.error and event.fatal:
+                self._done = True
+                return event
             return event
-        if event.type == PtyEventType.error and event.fatal:
-            self._done = True
-            return event
-        return event
 
     async def __aenter__(self) -> AsyncPtySession:
         return self

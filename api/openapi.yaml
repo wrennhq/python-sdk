@@ -987,13 +987,17 @@ paths:
         \ \"rows\": 24,\n  \"envs\": {\"TERM\": \"xterm-256color\"},\n  \"cwd\": \"/home/user\",\n  \"user\": \"user\"\n}\n\
         ```\nAll fields except `type` are optional. Defaults: cmd=\"/bin/bash\", cols=80, rows=24.\n\n**Client sends** (first\
         \ message — reconnect to existing PTY):\n```json\n{\"type\": \"connect\", \"tag\": \"pty-abc123de\"}\n```\n\n**Client\
-        \ sends** (after session is established):\n```json\n{\"type\": \"input\", \"data\": \"<base64-encoded bytes>\"}\n\
-        {\"type\": \"resize\", \"cols\": 120, \"rows\": 40}\n{\"type\": \"kill\"}\n```\n\n**Server sends**:\n```json\n{\"\
-        type\": \"started\", \"tag\": \"pty-abc123de\", \"pid\": 42}\n{\"type\": \"output\", \"data\": \"<base64-encoded PTY\
-        \ bytes>\"}\n{\"type\": \"exit\", \"exit_code\": 0}\n{\"type\": \"error\", \"data\": \"description\", \"fatal\": true}\n\
-        {\"type\": \"ping\"}\n```\n\nPTY data (input and output) is base64-encoded because it contains raw\nterminal bytes\
-        \ (escape sequences, control codes) that are not valid UTF-8.\n\nSessions persist across WebSocket disconnections\
-        \ — the process keeps\nrunning in the capsule. Use the `tag` from the \"started\" response to\nreconnect later.\n"
+        \ sends** (control messages, after session is established — JSON text frames):\n```json\n{\"type\": \"resize\", \"\
+        cols\": 120, \"rows\": 40}\n{\"type\": \"kill\"}\n```\n\nKeystroke input is sent as **raw binary WebSocket frames**\
+        \ containing the\nterminal bytes verbatim — not JSON, not base64. Every binary frame from\nthe client is treated as\
+        \ PTY input.\n\n**Server sends** (control messages — JSON text frames):\n```json\n{\"type\": \"started\", \"tag\"\
+        : \"pty-abc123de\", \"pid\": 42}\n{\"type\": \"exit\", \"exit_code\": 0}\n{\"type\": \"error\", \"data\": \"description\"\
+        , \"fatal\": true}\n{\"type\": \"ping\"}\n```\n\nPTY output is sent as **raw binary WebSocket frames** containing\
+        \ the\nterminal bytes verbatim — not JSON, not base64. Sending input and output\nas binary avoids the ~33% inflation\
+        \ of base64 over the JSON path.\n\nThe connection negotiates permessage-deflate (RFC 7692) compression\nautomatically;\
+        \ rapid output (e.g. full-screen TUI repaints) is coalesced\ninto fewer, larger frames before compression.\n\nSessions\
+        \ persist across WebSocket disconnections — the process keeps\nrunning in the capsule. Use the `tag` from the \"started\"\
+        \ response to\nreconnect later.\n"
       responses:
         '101':
           description: WebSocket upgrade
