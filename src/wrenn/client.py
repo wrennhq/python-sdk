@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from collections.abc import AsyncIterator, Iterator
+from datetime import date
 
 import httpx
 
@@ -13,10 +15,14 @@ from wrenn._config import (
     ENV_BASE_URL,
     ENV_PROXY_DOMAIN,
 )
-from wrenn.exceptions import handle_response
+from wrenn.exceptions import _raise_for_status, handle_response
 
 from wrenn.models import (
+    CapsuleMetrics,
+    CapsuleStats,
+    SSEEvent,
     Template,
+    UsageResponse,
 )
 from wrenn.models import (
     Capsule as CapsuleModel,
@@ -151,6 +157,46 @@ def _snapshot_list_params(type: str | None) -> dict:
     return params
 
 
+def _date_param(value: str | date | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _usage_params(from_: str | date | None, to: str | date | None) -> dict:
+    params: dict = {}
+    if (v := _date_param(from_)) is not None:
+        params["from"] = v
+    if (v := _date_param(to)) is not None:
+        params["to"] = v
+    return params
+
+
+def _range_params(range: str | None) -> dict:
+    return {"range": range} if range is not None else {}
+
+
+def _iter_sse_events(lines: Iterator[str]) -> Iterator[SSEEvent]:
+    """Parse SSE ``data:`` frames into :class:`SSEEvent` objects.
+
+    Ignores ``event:`` names and ``:keepalive`` comments — the payload's
+    own ``event`` field carries the kind.
+    """
+    data_lines: list[str] = []
+    for raw in lines:
+        if raw == "":
+            if data_lines:
+                yield SSEEvent.model_validate_json("\n".join(data_lines))
+                data_lines = []
+            continue
+        if raw.startswith(":"):
+            continue
+        if raw.startswith("data:"):
+            data_lines.append(raw[5:].lstrip())
+
+
 class CapsulesResource:
     """Sync capsule control-plane operations."""
 
@@ -259,6 +305,104 @@ class CapsulesResource:
         """
         resp = self._http.post(f"/v1/capsules/{id}/ping")
         handle_response(resp)
+
+    def stats(self, range: str | None = None) -> CapsuleStats:
+        """Get aggregate capsule usage stats for the authenticated team.
+
+        Args:
+            range (str | None): Time window. One of ``5m``, ``1h``, ``6h``,
+                ``24h``, ``30d``. Defaults to ``1h`` server-side.
+
+        Returns:
+            CapsuleStats: Current running counts plus 30-day peaks and a
+            chart-ready time series.
+
+        Example::
+
+            stats = wrenn.capsules.stats(range="24h")
+            print(stats.current.running_count, stats.peaks.vcpus)
+        """
+        resp = self._http.get("/v1/capsules/stats", params=_range_params(range))
+        return CapsuleStats.model_validate(handle_response(resp))
+
+    def usage(
+        self,
+        from_: str | date | None = None,
+        to: str | date | None = None,
+    ) -> UsageResponse:
+        """Get per-day CPU and RAM usage for the team.
+
+        Args:
+            from_ (str | date | None): Start date (``YYYY-MM-DD`` string or
+                ``date``). Defaults to 30 days ago server-side.
+            to (str | date | None): End date. Defaults to today.
+
+        Returns:
+            UsageResponse: Daily ``cpu_minutes`` / ``ram_mb_minutes`` points.
+
+        Example::
+
+            from datetime import date, timedelta
+
+            today = date.today()
+            usage = wrenn.capsules.usage(from_=today - timedelta(days=7), to=today)
+            for point in usage.points:
+                print(point.date, point.cpu_minutes, point.ram_mb_minutes)
+        """
+        resp = self._http.get("/v1/capsules/usage", params=_usage_params(from_, to))
+        return UsageResponse.model_validate(handle_response(resp))
+
+    def metrics(self, id: str, range: str | None = None) -> CapsuleMetrics:
+        """Get time-series CPU, memory, and disk metrics for a capsule.
+
+        Args:
+            id (str): Capsule ID.
+            range (str | None): One of ``10m`` (500ms samples),
+                ``2h`` (30s averages), ``24h`` (5-minute averages). Defaults
+                to ``10m`` server-side.
+
+        Returns:
+            CapsuleMetrics: Sampled :class:`MetricPoint` series.
+
+        Raises:
+            WrennNotFoundError: If the capsule does not exist or has been
+                destroyed.
+
+        Example::
+
+            m = wrenn.capsules.metrics("sb-abc123", range="2h")
+            for point in m.points:
+                print(point.timestamp_unix, point.cpu_pct, point.mem_bytes)
+        """
+        resp = self._http.get(f"/v1/capsules/{id}/metrics", params=_range_params(range))
+        return CapsuleMetrics.model_validate(handle_response(resp))
+
+
+class EventsResource:
+    """Sync server-sent event stream of capsule/template/host lifecycle events."""
+
+    def __init__(self, http: httpx.Client) -> None:
+        self._http = http
+
+    def stream(self) -> Iterator[SSEEvent]:
+        """Stream lifecycle events for the team in real time.
+
+        The connection is held open by the server; iterate the result to
+        receive :class:`SSEEvent` payloads as they arrive. Close the
+        iterator (or break out of the loop) to disconnect.
+
+        Yields:
+            SSEEvent: One event per server frame.
+
+        Example::
+
+            with WrennClient() as wrenn:
+                for ev in wrenn.events.stream():
+                    print(ev.event, ev.resource)
+        """
+        with self._http.stream("GET", "/v1/events/stream", timeout=None) as resp:
+            _raise_for_status(resp)
+            yield from _iter_sse_events(resp.iter_lines())
 
 
 class AsyncCapsulesResource:
@@ -369,6 +513,116 @@ class AsyncCapsulesResource:
         """
         resp = await self._http.post(f"/v1/capsules/{id}/ping")
         handle_response(resp)
+
+    async def stats(self, range: str | None = None) -> CapsuleStats:
+        """Get aggregate capsule usage stats for the authenticated team.
+
+        Args:
+            range (str | None): Time window. One of ``5m``, ``1h``, ``6h``,
+                ``24h``, ``30d``. Defaults to ``1h`` server-side.
+
+        Returns:
+            CapsuleStats: Current running counts plus 30-day peaks and a
+            chart-ready time series.
+
+        Example::
+
+            stats = await wrenn.capsules.stats(range="24h")
+            print(stats.current.running_count, stats.peaks.vcpus)
+        """
+        resp = await self._http.get("/v1/capsules/stats", params=_range_params(range))
+        return CapsuleStats.model_validate(handle_response(resp))
+
+    async def usage(
+        self,
+        from_: str | date | None = None,
+        to: str | date | None = None,
+    ) -> UsageResponse:
+        """Get per-day CPU and RAM usage for the team.
+
+        Args:
+            from_ (str | date | None): Start date (``YYYY-MM-DD`` string or
+                ``date``). Defaults to 30 days ago server-side.
+            to (str | date | None): End date. Defaults to today.
+
+        Returns:
+            UsageResponse: Daily ``cpu_minutes`` / ``ram_mb_minutes`` points.
+
+        Example::
+
+            from datetime import date, timedelta
+
+            today = date.today()
+            usage = await wrenn.capsules.usage(
+                from_=today - timedelta(days=7), to=today
+            )
+            for point in usage.points:
+                print(point.date, point.cpu_minutes, point.ram_mb_minutes)
+        """
+        resp = await self._http.get(
+            "/v1/capsules/usage", params=_usage_params(from_, to)
+        )
+        return UsageResponse.model_validate(handle_response(resp))
+
+    async def metrics(self, id: str, range: str | None = None) -> CapsuleMetrics:
+        """Get time-series CPU, memory, and disk metrics for a capsule.
+
+        Args:
+            id (str): Capsule ID.
+            range (str | None): One of ``10m`` (500ms samples),
+                ``2h`` (30s averages), ``24h`` (5-minute averages). Defaults
+                to ``10m`` server-side.
+
+        Returns:
+            CapsuleMetrics: Sampled :class:`MetricPoint` series.
+
+        Raises:
+            WrennNotFoundError: If the capsule does not exist or has been
+                destroyed.
+
+        Example::
+
+            m = await wrenn.capsules.metrics("sb-abc123", range="2h")
+            for point in m.points:
+                print(point.timestamp_unix, point.cpu_pct, point.mem_bytes)
+        """
+        resp = await self._http.get(
+            f"/v1/capsules/{id}/metrics", params=_range_params(range)
+        )
+        return CapsuleMetrics.model_validate(handle_response(resp))
+
+
+class AsyncEventsResource:
+    """Async server-sent event stream of capsule/template/host lifecycle events."""
+
+    def __init__(self, http: httpx.AsyncClient) -> None:
+        self._http = http
+
+    async def stream(self) -> AsyncIterator[SSEEvent]:
+        """Stream lifecycle events for the team in real time.
+
+        Yields:
+            SSEEvent: One event per server frame.
+
+        Example::
+
+            async with AsyncWrennClient() as wrenn:
+                async for ev in wrenn.events.stream():
+                    print(ev.event, ev.resource)
+        """
+        async with self._http.stream("GET", "/v1/events/stream", timeout=None) as resp:
+            _raise_for_status(resp)
+            data_lines: list[str] = []
+            async for raw in resp.aiter_lines():
+                if raw == "":
+                    if data_lines:
+                        yield SSEEvent.model_validate_json("\n".join(data_lines))
+                        data_lines = []
+                    continue
+                if raw.startswith(":"):
+                    continue
+                if raw.startswith("data:"):
+                    data_lines.append(raw[5:].lstrip())
 
 
 class SnapshotsResource:
@@ -486,7 +740,11 @@ class AsyncSnapshotsResource:
 class WrennClient:
     """Synchronous client for the Wrenn API.
 
-    Authenticates with an API key.
+    Authenticates with an API key. Exposes three resources:
+
+    - :attr:`capsules` — capsule lifecycle, stats, usage, metrics
+    - :attr:`snapshots` — template snapshot management
+    - :attr:`events` — server-sent lifecycle event stream
 
     Args:
         api_key: API key (``wrn_...``). Falls back to ``WRENN_API_KEY`` env var.
@@ -497,6 +755,15 @@ class WrennClient:
             is the default ``app.wrenn.dev`` host, else the ``base_url`` host.
         timeout: HTTP timeout. Accepts ``httpx.Timeout``, a float (seconds),
             or ``None`` for the default (30s read/write/pool, 10s connect).
+
+    Example::
+
+        from wrenn import WrennClient
+
+        with WrennClient() as wrenn:  # reads WRENN_API_KEY
+            capsule = wrenn.capsules.create(template="minimal-ubuntu")
+            print(capsule.id, capsule.status)
+            wrenn.capsules.destroy(capsule.id)
     """
 
     def __init__(
@@ -517,6 +784,7 @@ class WrennClient:
 
         self.capsules = CapsulesResource(self._http)
         self.snapshots = SnapshotsResource(self._http)
+        self.events = EventsResource(self._http)
 
     @property
     def http(self) -> httpx.Client:
@@ -542,7 +810,8 @@ class WrennClient:
 class AsyncWrennClient:
     """Asynchronous client for the Wrenn API.
 
-    Authenticates with an API key.
+    Authenticates with an API key. Mirrors :class:`WrennClient` with
+    ``await``-able methods on every resource.
 
     Args:
         api_key: API key (``wrn_...``). Falls back to ``WRENN_API_KEY`` env var.
@@ -553,6 +822,16 @@ class AsyncWrennClient:
             is the default ``app.wrenn.dev`` host, else the ``base_url`` host.
         timeout: HTTP timeout. Accepts ``httpx.Timeout``, a float (seconds),
             or ``None`` for the default (30s read/write/pool, 10s connect).
+
+    Example::
+
+        from wrenn import AsyncWrennClient
+
+        async with AsyncWrennClient() as wrenn:
+            capsule = await wrenn.capsules.create(template="minimal-ubuntu")
+            async for event in wrenn.events.stream():
+                if event.resource and event.resource.id == capsule.id:
+                    break
     """
 
     def __init__(
@@ -573,6 +852,7 @@ class AsyncWrennClient:
 
         self.capsules = AsyncCapsulesResource(self._http)
         self.snapshots = AsyncSnapshotsResource(self._http)
+        self.events = AsyncEventsResource(self._http)
 
     @property
     def http(self) -> httpx.AsyncClient:

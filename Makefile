@@ -1,5 +1,5 @@
 # Makefile
-.PHONY: generate lint test check test-integration test-code-runner
+.PHONY: generate gen-docs lint test check test-integration test-code-runner prune-spec
 
 # Variables
 SPEC_URL = "https://raw.githubusercontent.com/wrennhq/wrenn/refs/heads/main/internal/api/openapi.yaml"
@@ -11,6 +11,8 @@ generate:
 	mkdir -p api
 
 	curl -fsSL $(SPEC_URL) -o $(SPEC_PATH)
+
+	$(MAKE) prune-spec
 
 	uv run datamodel-codegen \
 		--input $(SPEC_PATH) \
@@ -39,6 +41,10 @@ test-code-runner:
 	uv run pytest tests/test_code_runner_unit.py tests/test_code_runner_e2e.py -v -m "integration or not integration"
 
 check: lint test
+
+prune-spec:
+	@echo "Pruning spec down to the SDK's API-key surface..."
+	uv run python scripts/prune_openapi.py $(SPEC_PATH)
 
 gen-docs:
 	mkdir -p docs

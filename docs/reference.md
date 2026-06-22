@@ -166,6 +166,131 @@ Reset the inactivity timer for a capsule.
 
 - `WrennNotFoundError` - If no capsule with the given ID exists.
 
+<a id="wrenn.client.CapsulesResource.stats"></a>
+
+#### stats
+
+```python
+def stats(range: str | None = None) -> CapsuleStats
+```
+
+Get aggregate capsule usage stats for the authenticated team.
+
+**Arguments**:
+
+- `range` _str | None_ - Time window. One of ``5m``, ``1h``, ``6h``,
+  ``24h``, ``30d``. Defaults to ``1h`` server-side.
+  
+
+**Returns**:
+
+- `CapsuleStats` - Current running counts plus 30-day peaks and a
+  chart-ready time series.
+  
+  Example::
+  
+  stats = wrenn.capsules.stats(range="24h")
+  print(stats.current.running_count, stats.peaks.vcpus)
+
+<a id="wrenn.client.CapsulesResource.usage"></a>
+
+#### usage
+
+```python
+def usage(from_: str | date | None = None,
+          to: str | date | None = None) -> UsageResponse
+```
+
+Get per-day CPU and RAM usage for the team.
+
+**Arguments**:
+
+- `from_` _str | date | None_ - Start date (``YYYY-MM-DD`` string or
+  ``date``). Defaults to 30 days ago server-side.
+- `to` _str | date | None_ - End date. Defaults to today.
+  
+
+**Returns**:
+
+- `UsageResponse` - Daily ``cpu_minutes`` / ``ram_mb_minutes`` points.
+  
+  Example::
+  
+  from datetime import date, timedelta
+  
+  today = date.today()
+  usage = wrenn.capsules.usage(from_=today - timedelta(days=7), to=today)
+  for point in usage.points:
+  print(point.date, point.cpu_minutes, point.ram_mb_minutes)
+
+<a id="wrenn.client.CapsulesResource.metrics"></a>
+
+#### metrics
+
+```python
+def metrics(id: str, range: str | None = None) -> CapsuleMetrics
+```
+
+Get time-series CPU, memory, and disk metrics for a capsule.
+
+**Arguments**:
+
+- `id` _str_ - Capsule ID.
+- `range` _str | None_ - One of ``10m`` (500ms samples),
+  ``2h`` (30s averages), ``24h`` (5-minute averages). Defaults
+  to ``10m`` server-side.
+  
+
+**Returns**:
+
+- `CapsuleMetrics` - Sampled :class:`MetricPoint` series.
+  
+
+**Raises**:
+
+- `WrennNotFoundError` - If the capsule does not exist or has been
+  destroyed.
+  
+  Example::
+  
+  m = wrenn.capsules.metrics("sb-abc123", range="2h")
+  for point in m.points:
+  print(point.timestamp_unix, point.cpu_pct, point.mem_bytes)
+
+<a id="wrenn.client.EventsResource"></a>
+
+## EventsResource Objects
+
+```python
+class EventsResource()
+```
+
+Sync server-sent event stream of capsule/template/host lifecycle events.
+
+<a id="wrenn.client.EventsResource.stream"></a>
+
+#### stream
+
+```python
+def stream() -> Iterator[SSEEvent]
+```
+
+Stream lifecycle events for the team in real time.
+
+The connection is held open by the server; iterate the result to
+receive :class:`SSEEvent` payloads as they arrive. Close the
+iterator (or break out of the loop) to disconnect.
+
+**Yields**:
+
+- `SSEEvent` - One event per server frame.
+  
+  Example::
+  
+  with WrennClient() as wrenn:
+  for ev in wrenn.events.stream():
+  print(ev.event, ev.resource)
+
 <a id="wrenn.client.AsyncCapsulesResource"></a>
 
 ## AsyncCapsulesResource Objects
@@ -326,6 +451,129 @@ Reset the inactivity timer for a capsule.
 
 - `WrennNotFoundError` - If no capsule with the given ID exists.
 
+<a id="wrenn.client.AsyncCapsulesResource.stats"></a>
+
+#### stats
+
+```python
+async def stats(range: str | None = None) -> CapsuleStats
+```
+
+Get aggregate capsule usage stats for the authenticated team.
+
+**Arguments**:
+
+- `range` _str | None_ - Time window. One of ``5m``, ``1h``, ``6h``,
+  ``24h``, ``30d``. Defaults to ``1h`` server-side.
+  
+
+**Returns**:
+
+- `CapsuleStats` - Current running counts plus 30-day peaks and a
+  chart-ready time series.
+  
+  Example::
+  
+  stats = await wrenn.capsules.stats(range="24h")
+  print(stats.current.running_count, stats.peaks.vcpus)
+
+<a id="wrenn.client.AsyncCapsulesResource.usage"></a>
+
+#### usage
+
+```python
+async def usage(from_: str | date | None = None,
+                to: str | date | None = None) -> UsageResponse
+```
+
+Get per-day CPU and RAM usage for the team.
+
+**Arguments**:
+
+- `from_` _str | date | None_ - Start date (``YYYY-MM-DD`` string or
+  ``date``). Defaults to 30 days ago server-side.
+- `to` _str | date | None_ - End date. Defaults to today.
+  
+
+**Returns**:
+
+- `UsageResponse` - Daily ``cpu_minutes`` / ``ram_mb_minutes`` points.
+  
+  Example::
+  
+  from datetime import date, timedelta
+  
+  today = date.today()
+  usage = await wrenn.capsules.usage(
+  from_=today - timedelta(days=7), to=today
+  )
+  for point in usage.points:
+  print(point.date, point.cpu_minutes, point.ram_mb_minutes)
+
+<a id="wrenn.client.AsyncCapsulesResource.metrics"></a>
+
+#### metrics
+
+```python
+async def metrics(id: str, range: str | None = None) -> CapsuleMetrics
+```
+
+Get time-series CPU, memory, and disk metrics for a capsule.
+
+**Arguments**:
+
+- `id` _str_ - Capsule ID.
+- `range` _str | None_ - One of ``10m`` (500ms samples),
+  ``2h`` (30s averages), ``24h`` (5-minute averages). Defaults
+  to ``10m`` server-side.
+  
+
+**Returns**:
+
+- `CapsuleMetrics` - Sampled :class:`MetricPoint` series.
+  
+
+**Raises**:
+
+- `WrennNotFoundError` - If the capsule does not exist or has been
+  destroyed.
+  
+  Example::
+  
+  m = await wrenn.capsules.metrics("sb-abc123", range="2h")
+  for point in m.points:
+  print(point.timestamp_unix, point.cpu_pct, point.mem_bytes)
+
+<a id="wrenn.client.AsyncEventsResource"></a>
+
+## AsyncEventsResource Objects
+
+```python
+class AsyncEventsResource()
+```
+
+Async server-sent event stream of capsule/template/host lifecycle events.
+
+<a id="wrenn.client.AsyncEventsResource.stream"></a>
+
+#### stream
+
+```python
+async def stream() -> AsyncIterator[SSEEvent]
+```
+
+Stream lifecycle events for the team in real time.
+
+**Yields**:
+
+- `SSEEvent` - One event per server frame.
+  
+  Example::
+  
+  async with AsyncWrennClient() as wrenn:
+  async for ev in wrenn.events.stream():
+  print(ev.event, ev.resource)
+
 <a id="wrenn.client.SnapshotsResource"></a>
 
 ## SnapshotsResource Objects
@@ -484,7 +732,11 @@ class WrennClient()
 
 Synchronous client for the Wrenn API.
 
-Authenticates with an API key.
+Authenticates with an API key. Exposes three resources:
+
+- :attr:`capsules` — capsule lifecycle, stats, usage, metrics
+- :attr:`snapshots` — template snapshot management
+- :attr:`events` — server-sent lifecycle event stream
 
 **Arguments**:
 
@@ -496,6 +748,15 @@ Authenticates with an API key.
   is the default ``app.wrenn.dev`` host, else the ``base_url`` host.
 - `timeout` - HTTP timeout. Accepts ``httpx.Timeout``, a float (seconds),
   or ``None`` for the default (30s read/write/pool, 10s connect).
+  
+  Example::
+  
+  from wrenn import WrennClient
+  
+  with WrennClient() as wrenn:  # reads WRENN_API_KEY
+  capsule = wrenn.capsules.create(template="minimal-ubuntu")
+  print(capsule.id, capsule.status)
+  wrenn.capsules.destroy(capsule.id)
 
 <a id="wrenn.client.WrennClient.http"></a>
 
@@ -528,7 +789,8 @@ class AsyncWrennClient()
 
 Asynchronous client for the Wrenn API.
 
-Authenticates with an API key.
+Authenticates with an API key. Mirrors :class:`WrennClient` with
+``await``-able methods on every resource.
 
 **Arguments**:
 
@@ -540,6 +802,16 @@ Authenticates with an API key.
   is the default ``app.wrenn.dev`` host, else the ``base_url`` host.
 - `timeout` - HTTP timeout. Accepts ``httpx.Timeout``, a float (seconds),
   or ``None`` for the default (30s read/write/pool, 10s connect).
+  
+  Example::
+  
+  from wrenn import AsyncWrennClient
+  
+  async with AsyncWrennClient() as wrenn:
+  capsule = await wrenn.capsules.create(template="minimal-ubuntu")
+  async for event in wrenn.events.stream():
+  if event.resource and event.resource.id == capsule.id:
+  break
 
 <a id="wrenn.client.AsyncWrennClient.http"></a>
 
@@ -1936,18 +2208,6 @@ Send SIGKILL to the PTY process.
 
 # wrenn.models.\_generated
 
-<a id="wrenn.models._generated.SessionResponse"></a>
-
-## SessionResponse Objects
-
-```python
-class SessionResponse(BaseModel)
-```
-
-Returned by login, activate, and switch-team. The actual auth credential
-is the wrenn_sid cookie set on the response. The body carries identity
-data the SPA needs to bootstrap.
-
 <a id="wrenn.models._generated.Peaks"></a>
 
 ## Peaks Objects
@@ -1977,16 +2237,6 @@ class Encoding(StrEnum)
 ```
 
 Output encoding. "base64" when stdout/stderr contain binary data.
-
-<a id="wrenn.models._generated.Type2"></a>
-
-## Type2 Objects
-
-```python
-class Type2(StrEnum)
-```
-
-Host type. Regular hosts are shared; BYOC hosts belong to a team.
 
 <a id="wrenn.models._generated.Outcome"></a>
 

@@ -103,6 +103,73 @@ class TestCapsules:
         client.capsules.ping("sb-1")
         assert route.called
 
+    @respx.mock
+    def test_stats(self, client):
+        route = respx.get(f"{BASE}/v1/capsules/stats").respond(
+            200,
+            json={
+                "range": "6h",
+                "current": {"running_count": 2, "vcpus_reserved": 4},
+                "peaks": {"running_count": 9},
+                "series": {"running": [1, 2, 2]},
+            },
+        )
+        stats = client.capsules.stats(range="6h")
+        assert "range=6h" in str(route.calls[0].request.url)
+        assert stats.current and stats.current.running_count == 2
+        assert stats.peaks and stats.peaks.running_count == 9
+
+    @respx.mock
+    def test_usage_passes_date_params(self, client):
+        import datetime as _dt
+
+        route = respx.get(f"{BASE}/v1/capsules/usage").respond(
+            200, json={"from": "2026-06-01", "to": "2026-06-22", "points": []}
+        )
+        client.capsules.usage(from_=_dt.date(2026, 6, 1), to="2026-06-22")
+        url = str(route.calls[0].request.url)
+        assert "from=2026-06-01" in url
+        assert "to=2026-06-22" in url
+
+    @respx.mock
+    def test_metrics(self, client):
+        respx.get(f"{BASE}/v1/capsules/sb-1/metrics").respond(
+            200,
+            json={
+                "sandbox_id": "sb-1",
+                "range": "10m",
+                "points": [{"timestamp_unix": 1, "cpu_pct": 12.5, "mem_bytes": 4096}],
+            },
+        )
+        m = client.capsules.metrics("sb-1")
+        assert m.sandbox_id == "sb-1"
+        assert m.points and m.points[0].cpu_pct == 12.5
+
+
+class TestEvents:
+    @respx.mock
+    def test_stream_parses_sse_frames(self, client):
+        body = (
+            ": keepalive\n"
+            "event: capsule.create\n"
+            'data: {"event":"capsule.create","resource":{"id":"sb-1","type":"capsule"}}\n'
+            "\n"
+            "event: capsule.destroy\n"
+            'data: {"event":"capsule.destroy","resource":{"id":"sb-1","type":"capsule"}}\n'
+            "\n"
+        )
+        respx.get(f"{BASE}/v1/events/stream").respond(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=body,
+        )
+        events = list(client.events.stream())
+        assert [e.event.value for e in events] == [
+            "capsule.create",
+            "capsule.destroy",
+        ]
+        assert events[0].resource and events[0].resource.id == "sb-1"
+
 
 class TestSnapshots:
     @respx.mock

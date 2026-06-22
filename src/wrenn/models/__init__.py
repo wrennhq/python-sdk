@@ -1,17 +1,31 @@
 from wrenn.models._generated import (
+    Actor,
     Capsule,
+    CapsuleMetrics,
+    CapsuleStats,
     FileEntry,
     ListDirResponse,
     MakeDirResponse,
+    MetricPoint,
+    Resource,
+    SSEEvent,
     Status,
     Template,
+    UsageResponse,
 )
 
 __all__ = [
+    "Actor",
     "Capsule",
+    "CapsuleMetrics",
+    "CapsuleStats",
     "FileEntry",
     "ListDirResponse",
     "MakeDirResponse",
+    "MetricPoint",
+    "Resource",
+    "SSEEvent",
     "Status",
     "Template",
+    "UsageResponse",
 ]
