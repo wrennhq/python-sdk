@@ -388,6 +388,214 @@ class TestJupyterRequest:
         assert a["header"]["msg_id"] != b["header"]["msg_id"]
 
 
+# ───────────────────────── _protocol direct helpers ─────────────────────────
+
+
+class TestPickKernelId:
+    def test_returns_first_matching_kernel(self):
+        from wrenn.code_runner._protocol import pick_kernel_id
+
+        kernels = [
+            {"id": "k-1", "name": "python3"},
+            {"id": "k-2", "name": "wrenn"},
+            {"id": "k-3", "name": "wrenn"},
+        ]
+        assert pick_kernel_id(kernels, "wrenn") == "k-2"
+
+    def test_returns_none_when_no_match(self):
+        from wrenn.code_runner._protocol import pick_kernel_id
+
+        kernels = [{"id": "k-1", "name": "python3"}]
+        assert pick_kernel_id(kernels, "wrenn") is None
+
+    def test_returns_none_on_empty_list(self):
+        from wrenn.code_runner._protocol import pick_kernel_id
+
+        assert pick_kernel_id([], "wrenn") is None
+
+    def test_ignores_entries_missing_name(self):
+        from wrenn.code_runner._protocol import pick_kernel_id
+
+        kernels = [{"id": "k-1"}, {"id": "k-2", "name": "wrenn"}]
+        assert pick_kernel_id(kernels, "wrenn") == "k-2"
+
+
+class TestValidateLanguage:
+    def test_python_accepted(self):
+        from wrenn.code_runner._protocol import validate_language
+
+        validate_language("python")  # no raise
+
+    def test_other_language_raises(self):
+        from wrenn.code_runner._protocol import validate_language
+
+        with pytest.raises(ValueError, match="not supported"):
+            validate_language("r")
+
+
+class TestBuildWsUrl:
+    def test_uses_proxy_domain_when_given(self):
+        from wrenn.code_runner._protocol import build_ws_url
+
+        url = build_ws_url(
+            base_url="https://app.wrenn.dev/api",
+            capsule_id="sb-1",
+            kernel_id="k-1",
+            proxy_domain="wrenn.dev",
+        )
+        assert url.startswith("wss://")
+        assert "8888-sb-1.wrenn.dev" in url
+        assert url.endswith("/api/kernels/k-1/channels")
+
+    def test_falls_back_to_base_host(self):
+        from wrenn.code_runner._protocol import build_ws_url
+
+        url = build_ws_url(
+            base_url="http://localhost:8080/api",
+            capsule_id="sb-1",
+            kernel_id="k-1",
+        )
+        # localhost stays http→ws (not wss) only if helper preserves scheme
+        assert "8888-sb-1.localhost:8080" in url
+        assert url.endswith("/api/kernels/k-1/channels")
+
+
+class TestApplyKernelMessage:
+    def _make_execution(self):
+        from wrenn.code_runner.models import Execution, Logs
+
+        return Execution(results=[], logs=Logs(stdout=[], stderr=[]), error=None)
+
+    def test_ignores_other_parent(self):
+        from wrenn.code_runner._protocol import apply_kernel_message
+
+        execution = self._make_execution()
+        msg = {
+            "msg_type": "stream",
+            "header": {"msg_type": "stream"},
+            "parent_header": {"msg_id": "other"},
+            "content": {"name": "stdout", "text": "hi"},
+        }
+        emitted: list = []
+        done = apply_kernel_message(
+            msg, "mine", execution, emitted.append, None, None, None
+        )
+        assert done is False
+        assert execution.logs.stdout == []
+
+    def test_stream_stdout_routed(self):
+        from wrenn.code_runner._protocol import apply_kernel_message
+
+        execution = self._make_execution()
+        msg = {
+            "msg_type": "stream",
+            "parent_header": {"msg_id": "mine"},
+            "content": {"name": "stdout", "text": "hi"},
+        }
+        outs: list[str] = []
+        apply_kernel_message(
+            msg, "mine", execution, lambda e: None, None, outs.append, None
+        )
+        assert execution.logs.stdout == ["hi"]
+        assert outs == ["hi"]
+
+    def test_stream_stderr_routed(self):
+        from wrenn.code_runner._protocol import apply_kernel_message
+
+        execution = self._make_execution()
+        msg = {
+            "msg_type": "stream",
+            "parent_header": {"msg_id": "mine"},
+            "content": {"name": "stderr", "text": "boom"},
+        }
+        errs: list[str] = []
+        apply_kernel_message(
+            msg, "mine", execution, lambda e: None, None, None, errs.append
+        )
+        assert execution.logs.stderr == ["boom"]
+        assert errs == ["boom"]
+
+    def test_execute_result_marks_main(self):
+        from wrenn.code_runner._protocol import apply_kernel_message
+
+        execution = self._make_execution()
+        msg = {
+            "msg_type": "execute_result",
+            "parent_header": {"msg_id": "mine"},
+            "content": {
+                "data": {"text/plain": "42"},
+                "execution_count": 7,
+            },
+        }
+        results: list = []
+        apply_kernel_message(
+            msg, "mine", execution, lambda e: None, results.append, None, None
+        )
+        assert execution.execution_count == 7
+        assert execution.results[0].is_main_result is True
+        assert results and results[0].is_main_result is True
+
+    def test_display_data_is_not_main(self):
+        from wrenn.code_runner._protocol import apply_kernel_message
+
+        execution = self._make_execution()
+        msg = {
+            "msg_type": "display_data",
+            "parent_header": {"msg_id": "mine"},
+            "content": {"data": {"text/plain": "x"}},
+        }
+        apply_kernel_message(msg, "mine", execution, lambda e: None, None, None, None)
+        assert execution.results[0].is_main_result is False
+        assert execution.execution_count is None
+
+    def test_error_message_emits_error(self):
+        from wrenn.code_runner._protocol import apply_kernel_message
+
+        execution = self._make_execution()
+        msg = {
+            "msg_type": "error",
+            "parent_header": {"msg_id": "mine"},
+            "content": {
+                "ename": "ValueError",
+                "evalue": "bad",
+                "traceback": ["line1", "line2"],
+            },
+        }
+        emitted: list = []
+        apply_kernel_message(msg, "mine", execution, emitted.append, None, None, None)
+        assert len(emitted) == 1
+        assert emitted[0].name == "ValueError"
+        assert emitted[0].traceback == "line1\nline2"
+
+    def test_idle_status_returns_true(self):
+        from wrenn.code_runner._protocol import apply_kernel_message
+
+        execution = self._make_execution()
+        msg = {
+            "msg_type": "status",
+            "parent_header": {"msg_id": "mine"},
+            "content": {"execution_state": "idle"},
+        }
+        done = apply_kernel_message(
+            msg, "mine", execution, lambda e: None, None, None, None
+        )
+        assert done is True
+
+    def test_busy_status_returns_false(self):
+        from wrenn.code_runner._protocol import apply_kernel_message
+
+        execution = self._make_execution()
+        msg = {
+            "msg_type": "status",
+            "parent_header": {"msg_id": "mine"},
+            "content": {"execution_state": "busy"},
+        }
+        done = apply_kernel_message(
+            msg, "mine", execution, lambda e: None, None, None, None
+        )
+        assert done is False
+
+
 # ───────────────────────── run_code (WS-mocked) ─────────────────────────
 
 

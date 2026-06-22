@@ -401,7 +401,9 @@ class EventsResource:
                     print(ev.event, ev.resource)
         """
         with self._http.stream("GET", "/v1/events/stream", timeout=None) as resp:
-            _raise_for_status(resp)
+            if resp.status_code >= 400:
+                resp.read()
+                _raise_for_status(resp)
             yield from _iter_sse_events(resp.iter_lines())
 
 
@@ -611,7 +613,9 @@ class AsyncEventsResource:
                     print(ev.event, ev.resource)
         """
         async with self._http.stream("GET", "/v1/events/stream", timeout=None) as resp:
-            _raise_for_status(resp)
+            if resp.status_code >= 400:
+                await resp.aread()
+                _raise_for_status(resp)
             data_lines: list[str] = []
             async for raw in resp.aiter_lines():
                 if raw == "":
