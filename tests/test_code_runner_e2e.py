@@ -428,15 +428,12 @@ class TestCodeRunnerMimeTypes:
         assert "array([0, 1, 2, 3, 4])" in ex.text
 
     def test_requests_status_code(self):
-        ex = self.capsule.run_code(
+        ex = self._run(
             "import requests\n"
-            "r = requests.get('https://httpbin.org/status/204', timeout=10)\n"
-            "r.status_code\n",
-            timeout=60,
+            "r = requests.get('http://httpbingo.org/status/418', timeout=10)\n"
+            "r.status_code\n"
         )
-        if ex.error is not None:
-            pytest.skip(f"network unavailable: {ex.error.name}: {ex.error.value}")
-        assert ex.text == "204"
+        assert ex.text == "418"
 
 
 class TestCodeRunnerIsolation:
