@@ -4,8 +4,8 @@ info:
   description: API for Wrenn — the runtime where AI coding agents live, work, and ship.
   version: 0.2.2
 servers:
-- url: http://localhost:8080
-  description: Local development
+  - url: http://localhost:8080
+    description: Local development
 security: []
 paths:
   /v1/capsules:
@@ -13,324 +13,326 @@ paths:
       summary: Create a capsule
       operationId: createCapsule
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateCapsuleRequest'
+              $ref: "#/components/schemas/CreateCapsuleRequest"
       responses:
-        '202':
+        "202":
           description: Capsule creation initiated (status will be "starting")
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Capsule'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/FailedPrecondition'
-        '502':
+                $ref: "#/components/schemas/Capsule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/FailedPrecondition"
+        "502":
           description: Host agent error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
     get:
       summary: List capsules for your team
       operationId: listCapsules
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       responses:
-        '200':
+        "200":
           description: List of capsules
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Capsule'
+                  $ref: "#/components/schemas/Capsule"
   /v1/capsules/stats:
     get:
       summary: Get capsule usage stats for your team
       operationId: getCapsuleStats
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       parameters:
-      - name: range
-        in: query
-        required: false
-        schema:
-          type: string
-          enum:
-          - 5m
-          - 1h
-          - 6h
-          - 24h
-          - 30d
-          default: 1h
-        description: Time window for the time-series data.
+        - name: range
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - 5m
+              - 1h
+              - 6h
+              - 24h
+              - 30d
+            default: 1h
+          description: Time window for the time-series data.
       responses:
-        '200':
+        "200":
           description: Capsule stats for the team
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CapsuleStats'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+                $ref: "#/components/schemas/CapsuleStats"
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /v1/capsules/usage:
     get:
       summary: Get daily CPU and RAM usage for your team
       operationId: getCapsuleUsage
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       parameters:
-      - name: from
-        in: query
-        required: false
-        schema:
-          type: string
-          format: date
-        description: Start date (YYYY-MM-DD). Defaults to 30 days ago.
-      - name: to
-        in: query
-        required: false
-        schema:
-          type: string
-          format: date
-        description: End date (YYYY-MM-DD). Defaults to today.
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Start date (YYYY-MM-DD). Defaults to 30 days ago.
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: End date (YYYY-MM-DD). Defaults to today.
       responses:
-        '200':
+        "200":
           description: Daily usage data for the team
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UsageResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+                $ref: "#/components/schemas/UsageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /v1/capsules/{id}:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     get:
       summary: Get capsule details
       operationId: getCapsule
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       responses:
-        '200':
+        "200":
           description: Capsule details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Capsule'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+                $ref: "#/components/schemas/Capsule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
     delete:
       summary: Destroy a capsule
       operationId: destroyCapsule
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       responses:
-        '202':
+        "202":
           description: Capsule destruction initiated
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/FailedPrecondition'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/FailedPrecondition"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/exec:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     post:
       summary: Execute a command
       operationId: execCommand
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ExecRequest'
+              $ref: "#/components/schemas/ExecRequest"
       responses:
-        '200':
+        "200":
           description: Command output (foreground exec)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ExecResponse'
-        '202':
+                $ref: "#/components/schemas/ExecResponse"
+        "202":
           description: Background process started
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BackgroundExecResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+                $ref: "#/components/schemas/BackgroundExecResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/processes:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     get:
       summary: List running processes
       operationId: listProcesses
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
-      description: 'Returns all running processes inside the capsule, including background
+        - apiKeyAuth: []
+      description:
+        "Returns all running processes inside the capsule, including background
 
         processes and any processes started by templates or init scripts.
 
-        '
+        "
       responses:
-        '200':
+        "200":
           description: Process list
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProcessListResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+                $ref: "#/components/schemas/ProcessListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/processes/{selector}:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
-    - name: selector
-      in: path
-      required: true
-      description: Process PID (numeric) or tag (string)
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: selector
+        in: path
+        required: true
+        description: Process PID (numeric) or tag (string)
+        schema:
+          type: string
     delete:
       summary: Kill a process
       operationId: killProcess
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       parameters:
-      - name: signal
-        in: query
-        required: false
-        description: Signal to send (SIGKILL or SIGTERM, default SIGKILL)
-        schema:
-          type: string
-          enum:
-          - SIGKILL
-          - SIGTERM
-          default: SIGKILL
+        - name: signal
+          in: query
+          required: false
+          description: Signal to send (SIGKILL or SIGTERM, default SIGKILL)
+          schema:
+            type: string
+            enum:
+              - SIGKILL
+              - SIGTERM
+            default: SIGKILL
       responses:
-        '204':
+        "204":
           description: Process killed
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule or process not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/processes/{selector}/stream:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
-    - name: selector
-      in: path
-      required: true
-      description: Process PID (numeric) or tag (string)
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: selector
+        in: path
+        required: true
+        description: Process PID (numeric) or tag (string)
+        schema:
+          type: string
     get:
       summary: Stream process output via WebSocket
       operationId: connectProcess
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
-      description: 'Opens a WebSocket connection to stream stdout/stderr from a running
+        - apiKeyAuth: []
+      description:
+        'Opens a WebSocket connection to stream stdout/stderr from a running
 
         background process. The selector can be a numeric PID or a string tag.
 
@@ -349,61 +351,63 @@ paths:
 
         '
       responses:
-        '101':
+        "101":
           description: WebSocket upgrade
   /v1/capsules/{id}/ping:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     post:
       summary: Reset capsule inactivity timer
       operationId: pingCapsule
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
-      description: 'Resets the last_active_at timestamp for a running capsule, preventing
+        - apiKeyAuth: []
+      description:
+        "Resets the last_active_at timestamp for a running capsule, preventing
 
         the auto-pause TTL from expiring. Use this as a keepalive for capsules
 
         that are idle but should remain running.
 
-        '
+        "
       responses:
-        '204':
+        "204":
           description: Ping acknowledged, inactivity timer reset
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
   /v1/capsules/{id}/metrics:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     get:
       summary: Get per-capsule resource metrics
       operationId: getCapsuleMetrics
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
-      description: 'Returns time-series CPU, memory, and disk metrics for a capsule.
+        - apiKeyAuth: []
+      description:
+        "Returns time-series CPU, memory, and disk metrics for a capsule.
 
         Three tiers are available with different granularity and retention:
 
@@ -414,105 +418,107 @@ paths:
         - `24h`: 5-minute averages, last 24 hours
 
 
-        For running capsules, data comes from the host agent''s in-memory
+        For running capsules, data comes from the host agent's in-memory
 
         ring buffer. For paused capsules, data is read from persisted
 
         snapshots in the database. Stopped/destroyed capsules return 404.
 
-        '
+        "
       parameters:
-      - name: range
-        in: query
-        required: false
-        schema:
-          type: string
-          enum:
-          - 5m
-          - 10m
-          - 1h
-          - 2h
-          - 6h
-          - 12h
-          - 24h
-          default: 10m
-        description: Time range filter to query
+        - name: range
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - 5m
+              - 10m
+              - 1h
+              - 2h
+              - 6h
+              - 12h
+              - 24h
+            default: 10m
+          description: Time range filter to query
       responses:
-        '200':
+        "200":
           description: Metrics retrieved
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CapsuleMetrics'
-        '400':
+                $ref: "#/components/schemas/CapsuleMetrics"
+        "400":
           description: Invalid range parameter
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '404':
+                $ref: "#/components/schemas/Error"
+        "404":
           description: Capsule not found or metrics not available
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/pause:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     post:
       summary: Pause a running capsule
       operationId: pauseCapsule
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
-      description: 'Takes a snapshot of the capsule (VM state + memory + rootfs), then
+        - apiKeyAuth: []
+      description:
+        "Takes a snapshot of the capsule (VM state + memory + rootfs), then
 
         destroys all running resources. The capsule exists only as files on
 
         disk and can be resumed later.
 
-        '
+        "
       responses:
-        '202':
+        "202":
           description: Capsule pause initiated (status will be "pausing")
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Capsule'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+                $ref: "#/components/schemas/Capsule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/resume:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     post:
       summary: Resume a paused capsule
       operationId: resumeCapsule
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
-      description: 'Restores a paused capsule from its snapshot. Cloud Hypervisor is
+        - apiKeyAuth: []
+      description:
+        "Restores a paused capsule from its snapshot. Cloud Hypervisor is
 
         relaunched in --restore mode with memory_restore_mode=ondemand so
 
@@ -520,35 +526,36 @@ paths:
 
         slot (and host-reachable IP) is preserved across pause/resume.
 
-        '
+        "
       responses:
-        '202':
+        "202":
           description: Capsule resume initiated (status will be "resuming")
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Capsule'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+                $ref: "#/components/schemas/Capsule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: Capsule not paused
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/snapshots:
     post:
       summary: Create a snapshot template
       operationId: createSnapshot
       tags:
-      - snapshots
+        - snapshots
       security:
-      - apiKeyAuth: []
-      description: 'Snapshot a capsule, processed asynchronously. The call returns
+        - apiKeyAuth: []
+      description:
+        "Snapshot a capsule, processed asynchronously. The call returns
 
         immediately with the capsule in the `snapshotting` state, then it
 
@@ -577,108 +584,108 @@ paths:
 
         an existing name returns 409 Conflict.
 
-        '
+        "
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateSnapshotRequest'
+              $ref: "#/components/schemas/CreateSnapshotRequest"
       responses:
-        '202':
+        "202":
           description: Snapshot accepted; capsule is now snapshotting
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Capsule'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+                $ref: "#/components/schemas/Capsule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: Name already exists, or capsule is not running or paused
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
     get:
       summary: List templates for your team
       operationId: listSnapshots
       tags:
-      - snapshots
+        - snapshots
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       parameters:
-      - name: type
-        in: query
-        required: false
-        schema:
-          type: string
-          enum:
-          - base
-          - snapshot
-        description: Filter by template type.
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - base
+              - snapshot
+          description: Filter by template type.
       responses:
-        '200':
+        "200":
           description: List of templates
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Template'
+                  $ref: "#/components/schemas/Template"
   /v1/snapshots/{name}:
     parameters:
-    - name: name
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
     delete:
       summary: Delete a snapshot template
       operationId: deleteSnapshot
       tags:
-      - snapshots
+        - snapshots
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       description: Removes the snapshot files from disk and deletes the database record.
       responses:
-        '204':
+        "204":
           description: Snapshot deleted
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '403':
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
           description: Cannot delete a platform-owned / system base template
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '404':
+                $ref: "#/components/schemas/Error"
+        "404":
           description: Template not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Delete failed (e.g. owning host offline)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
   /v1/capsules/{id}/files/write:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     post:
       summary: Upload a file
       operationId: uploadFile
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -686,8 +693,8 @@ paths:
             schema:
               type: object
               required:
-              - path
-              - file
+                - path
+                - file
               properties:
                 path:
                   type: string
@@ -697,212 +704,214 @@ paths:
                   format: binary
                   description: File content
       responses:
-        '204':
+        "204":
           description: File uploaded
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '413':
+                $ref: "#/components/schemas/Error"
+        "413":
           description: File too large
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/files/read:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     post:
       summary: Download a file
       operationId: downloadFile
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ReadFileRequest'
+              $ref: "#/components/schemas/ReadFileRequest"
       responses:
-        '200':
+        "200":
           description: File content
           content:
             application/octet-stream:
               schema:
                 type: string
                 format: binary
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule or file not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/files/list:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     post:
       summary: List directory contents
       operationId: listDir
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ListDirRequest'
+              $ref: "#/components/schemas/ListDirRequest"
       responses:
-        '200':
+        "200":
           description: Directory listing
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ListDirResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+                $ref: "#/components/schemas/ListDirResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/files/mkdir:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     post:
       summary: Create a directory
       operationId: makeDir
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MakeDirRequest'
+              $ref: "#/components/schemas/MakeDirRequest"
       responses:
-        '200':
+        "200":
           description: Directory created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MakeDirResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+                $ref: "#/components/schemas/MakeDirResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
-          description: 'Capsule not running, or a directory already exists at the target path (error code `already_exists`).
+                $ref: "#/components/schemas/Error"
+        "409":
+          description:
+            "Capsule not running, or a directory already exists at the target path (error code `already_exists`).
 
-            '
+            "
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/files/remove:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     post:
       summary: Remove a file or directory
       operationId: removePath
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RemoveRequest'
+              $ref: "#/components/schemas/RemoveRequest"
       responses:
-        '204':
+        "204":
           description: File or directory removed
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/exec/stream:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     get:
       summary: Stream command execution via WebSocket
       operationId: execStream
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
-      description: 'Opens a WebSocket connection for streaming command execution.
+        - apiKeyAuth: []
+      description:
+        'Opens a WebSocket connection for streaming command execution.
 
 
         **Client sends** (first message to start the process):
@@ -951,37 +960,38 @@ paths:
 
         '
       responses:
-        '101':
+        "101":
           description: WebSocket upgrade
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
   /v1/capsules/{id}/pty:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     get:
       summary: Interactive PTY session via WebSocket
       operationId: ptySession
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
-      description: "Opens a WebSocket connection for an interactive PTY (terminal) session.\nSupports creating new sessions,\
+        - apiKeyAuth: []
+      description:
+        "Opens a WebSocket connection for an interactive PTY (terminal) session.\nSupports creating new sessions,\
         \ sending input, resizing, killing, and\nreconnecting to existing sessions.\n\n**Client sends** (first message — start\
         \ a new PTY):\n```json\n{\n  \"type\": \"start\",\n  \"cmd\": \"/bin/bash\",\n  \"args\": [],\n  \"cols\": 80,\n \
         \ \"rows\": 24,\n  \"envs\": {\"TERM\": \"xterm-256color\"},\n  \"cwd\": \"/home/user\",\n  \"user\": \"user\"\n}\n\
@@ -999,43 +1009,44 @@ paths:
         \ persist across WebSocket disconnections — the process keeps\nrunning in the capsule. Use the `tag` from the \"started\"\
         \ response to\nreconnect later.\n"
       responses:
-        '101':
+        "101":
           description: WebSocket upgrade
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
   /v1/capsules/{id}/files/stream/write:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     post:
       summary: Upload a file (streaming)
       operationId: streamUploadFile
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
-      description: 'Streams file content to the capsule without buffering in memory.
+        - apiKeyAuth: []
+      description:
+        "Streams file content to the capsule without buffering in memory.
 
         Suitable for large files. Uses the same multipart/form-data format
 
         as the non-streaming upload endpoint.
 
-        '
+        "
       requestBody:
         required: true
         content:
@@ -1043,8 +1054,8 @@ paths:
             schema:
               type: object
               required:
-              - path
-              - file
+                - path
+                - file
               properties:
                 path:
                   type: string
@@ -1054,86 +1065,88 @@ paths:
                   format: binary
                   description: File content
       responses:
-        '204':
+        "204":
           description: File uploaded
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '502':
+                $ref: "#/components/schemas/Error"
+        "502":
           description: Host agent error while streaming the upload
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/capsules/{id}/files/stream/read:
     parameters:
-    - name: id
-      in: path
-      required: true
-      schema:
-        type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     post:
       summary: Download a file (streaming)
       operationId: streamDownloadFile
       tags:
-      - capsules
+        - capsules
       security:
-      - apiKeyAuth: []
-      description: 'Streams file content from the capsule without buffering in memory.
+        - apiKeyAuth: []
+      description:
+        "Streams file content from the capsule without buffering in memory.
 
         Suitable for large files. Returns raw bytes with chunked transfer encoding.
 
-        '
+        "
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ReadFileRequest'
+              $ref: "#/components/schemas/ReadFileRequest"
       responses:
-        '200':
+        "200":
           description: File content streamed in chunks
           content:
             application/octet-stream:
               schema:
                 type: string
                 format: binary
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
           description: Capsule or file not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: Capsule not running
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/events/stream:
     get:
       summary: Real-time lifecycle event stream
       operationId: streamEvents
       tags:
-      - events
-      description: 'Server-Sent Events stream of capsule, template, and host lifecycle
+        - events
+      description:
+        'Server-Sent Events stream of capsule, template, and host lifecycle
 
         events scoped to the caller''s active team. Browsers send the
 
@@ -1159,20 +1172,20 @@ paths:
 
         '
       security:
-      - apiKeyAuth: []
+        - apiKeyAuth: []
       responses:
-        '200':
+        "200":
           description: SSE stream opened
           content:
             text/event-stream:
               schema:
-                $ref: '#/components/schemas/SSEEvent'
-        '401':
+                $ref: "#/components/schemas/SSEEvent"
+        "401":
           description: Missing or invalid auth
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 components:
   responses:
     BadRequest:
@@ -1180,31 +1193,31 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
     Forbidden:
       description: Authenticated but not permitted (e.g. non-admin on /v1/admin/*)
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
     NotFound:
       description: Resource not found
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
     FailedPrecondition:
       description: Resource state does not allow this operation (e.g. exec on a paused capsule)
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
     ServiceUnavailable:
       description: The host serving this capsule is unreachable (host_unavailable)
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
   securitySchemes:
     apiKeyAuth:
       type: apiKey
@@ -1228,21 +1241,23 @@ components:
           type: integer
           minimum: 0
           default: 0
-          description: 'Auto-pause TTL in seconds. The capsule is automatically paused after this duration of inactivity (no
-            exec or ping). 0 means no auto-pause. Positive values below 60 are silently clamped to 60 (the agent''s startup
+          description:
+            "Auto-pause TTL in seconds. The capsule is automatically paused after this duration of inactivity (no
+            exec or ping). 0 means no auto-pause. Positive values below 60 are silently clamped to 60 (the agent's startup
             envelope).
 
-            '
+            "
         metadata:
           type: object
           additionalProperties:
             type: string
           nullable: true
-          description: 'Optional user-supplied key/value labels attached to the capsule. Max 20 keys; keys match [a-zA-Z0-9][a-zA-Z0-9._-]{0,63};
+          description:
+            "Optional user-supplied key/value labels attached to the capsule. Max 20 keys; keys match [a-zA-Z0-9][a-zA-Z0-9._-]{0,63};
             values are at most 64 characters. Reserved system keys (kernel_version, vmm_version, agent_version, envd_version)
             are rejected. Metadata is set at create-time only.
 
-            '
+            "
     UsageResponse:
       type: object
       properties:
@@ -1270,11 +1285,11 @@ components:
         range:
           type: string
           enum:
-          - 5m
-          - 1h
-          - 6h
-          - 24h
-          - 30d
+            - 5m
+            - 1h
+            - 6h
+            - 24h
+            - 30d
         current:
           type: object
           properties:
@@ -1323,18 +1338,18 @@ components:
         status:
           type: string
           enum:
-          - pending
-          - starting
-          - running
-          - pausing
-          - paused
-          - snapshotting
-          - resuming
-          - stopping
-          - hibernated
-          - stopped
-          - missing
-          - error
+            - pending
+            - starting
+            - running
+            - pausing
+            - paused
+            - snapshotting
+            - resuming
+            - stopping
+            - hibernated
+            - stopped
+            - missing
+            - error
         template:
           type: string
         vcpus:
@@ -1362,7 +1377,8 @@ components:
           additionalProperties:
             type: string
           nullable: true
-          description: 'User-supplied key/value labels attached at create-time. Once the
+          description:
+            "User-supplied key/value labels attached at create-time. Once the
 
             capsule is running this also carries agent-side system version info
 
@@ -1370,7 +1386,7 @@ components:
 
             reserved keys are owned by the system and cannot be set by users.
 
-            '
+            "
         disk_size_mb:
           type: integer
           description: Maximum disk capacity in MiB.
@@ -1381,7 +1397,7 @@ components:
     CreateSnapshotRequest:
       type: object
       required:
-      - sandbox_id
+        - sandbox_id
       properties:
         sandbox_id:
           type: string
@@ -1397,8 +1413,8 @@ components:
         type:
           type: string
           enum:
-          - base
-          - snapshot
+            - base
+            - snapshot
         vcpus:
           type: integer
           nullable: true
@@ -1413,22 +1429,23 @@ components:
           format: date-time
         platform:
           type: boolean
-          description: 'True when the template is platform-managed (visible to all teams,
+          description:
+            "True when the template is platform-managed (visible to all teams,
 
             e.g. the built-in `minimal-ubuntu` rootfs). False for team-owned
 
             snapshot templates.
 
-            '
+            "
         protected:
           type: boolean
-          description: 'True for built-in system base templates (minimal-ubuntu,
+          description: "True for built-in system base templates (minimal-ubuntu,
 
             minimal-alpine, minimal-arch, minimal-fedora). Protected templates
 
             cannot be deleted.
 
-            '
+            "
         metadata:
           type: object
           additionalProperties:
@@ -1437,7 +1454,7 @@ components:
     ExecRequest:
       type: object
       required:
-      - cmd
+        - cmd
       properties:
         cmd:
           type: string
@@ -1455,7 +1472,8 @@ components:
           description: If true, starts the process in the background and returns immediately with a PID and tag (HTTP 202)
         tag:
           type: string
-          description: Optional user-chosen tag for the background process. Auto-generated if omitted. Only used when background
+          description:
+            Optional user-chosen tag for the background process. Auto-generated if omitted. Only used when background
             is true.
         envs:
           type: object
@@ -1495,7 +1513,7 @@ components:
         processes:
           type: array
           items:
-            $ref: '#/components/schemas/ProcessEntry'
+            $ref: "#/components/schemas/ProcessEntry"
     ExecResponse:
       type: object
       properties:
@@ -1514,13 +1532,13 @@ components:
         encoding:
           type: string
           enum:
-          - utf-8
-          - base64
+            - utf-8
+            - base64
           description: Output encoding. "base64" when stdout/stderr contain binary data.
     ReadFileRequest:
       type: object
       required:
-      - path
+        - path
       properties:
         path:
           type: string
@@ -1528,7 +1546,7 @@ components:
     ListDirRequest:
       type: object
       required:
-      - path
+        - path
       properties:
         path:
           type: string
@@ -1543,7 +1561,7 @@ components:
         entries:
           type: array
           items:
-            $ref: '#/components/schemas/FileEntry'
+            $ref: "#/components/schemas/FileEntry"
     FileEntry:
       type: object
       properties:
@@ -1554,9 +1572,9 @@ components:
         type:
           type: string
           enum:
-          - file
-          - directory
-          - symlink
+            - file
+            - directory
+            - symlink
         size:
           type: integer
           format: int64
@@ -1579,7 +1597,7 @@ components:
     MakeDirRequest:
       type: object
       required:
-      - path
+        - path
       properties:
         path:
           type: string
@@ -1588,11 +1606,11 @@ components:
       type: object
       properties:
         entry:
-          $ref: '#/components/schemas/FileEntry'
+          $ref: "#/components/schemas/FileEntry"
     RemoveRequest:
       type: object
       required:
-      - path
+        - path
       properties:
         path:
           type: string
@@ -1605,17 +1623,17 @@ components:
         range:
           type: string
           enum:
-          - 5m
-          - 10m
-          - 1h
-          - 2h
-          - 6h
-          - 12h
-          - 24h
+            - 5m
+            - 10m
+            - 1h
+            - 2h
+            - 6h
+            - 12h
+            - 24h
         points:
           type: array
           items:
-            $ref: '#/components/schemas/MetricPoint'
+            $ref: "#/components/schemas/MetricPoint"
     MetricPoint:
       type: object
       properties:
@@ -1646,37 +1664,39 @@ components:
               type: string
     SSEEvent:
       type: object
-      description: 'Wire format of one SSE message body. The event name (`event:` line) is
+      description:
+        "Wire format of one SSE message body. The event name (`event:` line) is
 
         the `kind` and the JSON below is the `data:` line.
 
-        '
+        "
       properties:
         event:
           type: string
           enum:
-          - connected
-          - capsule.create
-          - capsule.pause
-          - capsule.resume
-          - capsule.destroy
-          - capsule.state.changed
-          - template.snapshot.create
-          - template.snapshot.delete
-          - host.up
-          - host.down
+            - connected
+            - capsule.create
+            - capsule.pause
+            - capsule.resume
+            - capsule.destroy
+            - capsule.state.changed
+            - template.snapshot.create
+            - template.snapshot.delete
+            - host.up
+            - host.down
         outcome:
           type: string
           enum:
-          - success
-          - error
-          description: 'Present for action events (capsule.* except state.changed,
+            - success
+            - error
+          description:
+            "Present for action events (capsule.* except state.changed,
 
             template.snapshot.*). Absent for host.up/down, capsule.state.changed,
 
             and the connected sentinel.
 
-            '
+            "
         resource:
           type: object
           properties:
@@ -1690,9 +1710,9 @@ components:
             type:
               type: string
               enum:
-              - user
-              - api_key
-              - system
+                - user
+                - api_key
+                - system
             id:
               type: string
             name:
@@ -1701,19 +1721,19 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: 'Event-specific context. Examples: `reason` (ttl_expired,
+          description: "Event-specific context. Examples: `reason` (ttl_expired,
 
             host_failure, cleanup_after_create_error, orphaned),
 
             `host_ip`, `from`/`to` (for capsule.state.changed).
 
-            '
+            "
         error:
           type: string
           description: Failure reason; only set when outcome=error.
         sandbox:
           allOf:
-          - $ref: '#/components/schemas/Capsule'
+            - $ref: "#/components/schemas/Capsule"
           nullable: true
           description: Populated for capsule.* events; null if DB lookup failed.
         timestamp:

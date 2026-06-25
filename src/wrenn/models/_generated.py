@@ -3,10 +3,12 @@
 #   timestamp: 2026-06-22T22:24:45+00:00
 
 from __future__ import annotations
-from typing import Annotated
-from pydantic import AwareDatetime, BaseModel, Field
+
 from datetime import date as date_aliased
 from enum import StrEnum
+from typing import Annotated
+
+from pydantic import AwareDatetime, BaseModel, Field
 
 
 class CreateCapsuleRequest(BaseModel):
@@ -276,12 +278,6 @@ class FileEntry(BaseModel):
         int | None, Field(description="Unix timestamp (seconds)")
     ] = None
     symlink_target: str | None = None
-
-
-class MakeDirRequest(BaseModel):
-    path: Annotated[
-        str, Field(description="Directory path to create inside the capsule")
-    ]
 
 
 class MakeDirResponse(BaseModel):
