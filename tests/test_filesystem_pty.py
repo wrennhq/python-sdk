@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import base64
 import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import respx
+from wsproto.events import BytesMessage, TextMessage
 
 from wrenn.capsule import Capsule
 from wrenn.models import FileEntry
@@ -13,8 +13,17 @@ from wrenn.pty import (
     AsyncPtySession,
     PtyEventType,
     PtySession,
-    _parse_pty_event,
+    _parse_control_event,
 )
+
+
+def _text(payload: dict) -> TextMessage:
+    return TextMessage(data=json.dumps(payload))
+
+
+def _bytes(data: bytes) -> BytesMessage:
+    return BytesMessage(data=data)
+
 
 BASE = "https://app.wrenn.dev/api"
 
@@ -226,50 +235,37 @@ class TestFilesExists:
 class TestPtyEventParsing:
     def test_started_event(self):
         raw = {"type": "started", "tag": "pty-a1b2c3d4", "pid": 42}
-        event = _parse_pty_event(raw)
+        event = _parse_control_event(raw)
         assert event.type == PtyEventType.started
         assert event.pid == 42
         assert event.tag == "pty-a1b2c3d4"
 
-    def test_output_event_base64(self):
-        encoded = base64.b64encode(b"ls -la\n").decode()
-        raw = {"type": "output", "data": encoded}
-        event = _parse_pty_event(raw)
-        assert event.type == PtyEventType.output
-        assert event.data == b"ls -la\n"
-
-    def test_output_event_empty(self):
-        raw = {"type": "output", "data": ""}
-        event = _parse_pty_event(raw)
-        assert event.data == b""
-
     def test_exit_event(self):
         raw = {"type": "exit", "exit_code": 0}
-        event = _parse_pty_event(raw)
+        event = _parse_control_event(raw)
         assert event.type == PtyEventType.exit
         assert event.exit_code == 0
 
     def test_error_event(self):
         raw = {"type": "error", "data": "process not found", "fatal": True}
-        event = _parse_pty_event(raw)
+        event = _parse_control_event(raw)
         assert event.type == PtyEventType.error
         assert event.data == "process not found"
         assert event.fatal is True
 
     def test_ping_event(self):
         raw = {"type": "ping"}
-        event = _parse_pty_event(raw)
+        event = _parse_control_event(raw)
         assert event.type == PtyEventType.ping
 
 
 class TestPtySessionWrite:
-    def test_write_sends_base64_input(self):
+    def test_write_sends_binary_frame(self):
         ws = MagicMock()
         session = PtySession(ws, "cl-abc")
         session.write(b"ls -la\n")
-        sent = json.loads(ws.send_text.call_args[0][0])
-        assert sent["type"] == "input"
-        assert base64.b64decode(sent["data"]) == b"ls -la\n"
+        ws.send_bytes.assert_called_once_with(b"ls -la\n")
+        ws.send_text.assert_not_called()
 
 
 class TestPtySessionResize:
@@ -303,12 +299,11 @@ class TestPtySessionKill:
 class TestPtySessionIteration:
     def test_iter_yields_events_until_exit(self):
         ws = MagicMock()
-        messages = [
-            json.dumps({"type": "started", "tag": "pty-abc12345", "pid": 1}),
-            json.dumps({"type": "output", "data": base64.b64encode(b"hello").decode()}),
-            json.dumps({"type": "exit", "exit_code": 0}),
+        ws.receive.side_effect = [
+            _text({"type": "started", "tag": "pty-abc12345", "pid": 1}),
+            _bytes(b"hello"),
+            _text({"type": "exit", "exit_code": 0}),
         ]
-        ws.receive_text.side_effect = messages
         session = PtySession(ws, "cl-abc")
         events = list(session)
         assert len(events) == 3
@@ -320,12 +315,22 @@ class TestPtySessionIteration:
         assert events[2].type == PtyEventType.exit
         assert events[2].exit_code == 0
 
+    def test_iter_yields_empty_binary_frame(self):
+        ws = MagicMock()
+        ws.receive.side_effect = [
+            _bytes(b""),
+            _text({"type": "exit", "exit_code": 0}),
+        ]
+        session = PtySession(ws, "cl-abc")
+        events = list(session)
+        assert events[0].type == PtyEventType.output
+        assert events[0].data == b""
+
     def test_iter_stops_on_fatal_error(self):
         ws = MagicMock()
-        messages = [
-            json.dumps({"type": "error", "data": "fatal", "fatal": True}),
+        ws.receive.side_effect = [
+            _text({"type": "error", "data": "fatal", "fatal": True}),
         ]
-        ws.receive_text.side_effect = messages
         session = PtySession(ws, "cl-abc")
         events = list(session)
         assert len(events) == 1
@@ -335,7 +340,7 @@ class TestPtySessionIteration:
         import httpx_ws
 
         ws = MagicMock()
-        ws.receive_text.side_effect = httpx_ws.WebSocketDisconnect()
+        ws.receive.side_effect = httpx_ws.WebSocketDisconnect()
         session = PtySession(ws, "cl-abc")
         events = list(session)
         assert events == []
@@ -344,9 +349,9 @@ class TestPtySessionIteration:
 class TestPtySessionPong:
     def test_ping_triggers_pong(self):
         ws = MagicMock()
-        ws.receive_text.side_effect = [
-            json.dumps({"type": "ping"}),
-            json.dumps({"type": "exit", "exit_code": 0}),
+        ws.receive.side_effect = [
+            _text({"type": "ping"}),
+            _text({"type": "exit", "exit_code": 0}),
         ]
         session = PtySession(ws, "cl-abc")
         events = list(session)
@@ -356,9 +361,9 @@ class TestPtySessionPong:
 
     def test_no_pong_without_ping(self):
         ws = MagicMock()
-        ws.receive_text.side_effect = [
-            json.dumps({"type": "output", "data": ""}),
-            json.dumps({"type": "exit", "exit_code": 0}),
+        ws.receive.side_effect = [
+            _bytes(b""),
+            _text({"type": "exit", "exit_code": 0}),
         ]
         session = PtySession(ws, "cl-abc")
         list(session)
@@ -431,13 +436,12 @@ class TestPtySessionSendConnect:
 
 class TestAsyncPtySession:
     @pytest.mark.asyncio
-    async def test_async_write_sends_base64(self):
+    async def test_async_write_sends_binary_frame(self):
         ws = AsyncMock()
         session = AsyncPtySession(ws, "cl-abc")
         await session.write(b"hello")
-        sent = json.loads(ws.send_text.call_args[0][0])
-        assert sent["type"] == "input"
-        assert base64.b64decode(sent["data"]) == b"hello"
+        ws.send_bytes.assert_awaited_once_with(b"hello")
+        ws.send_text.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_async_resize(self):
@@ -486,9 +490,9 @@ class TestAsyncPtySession:
     @pytest.mark.asyncio
     async def test_async_ping_triggers_pong(self):
         ws = AsyncMock()
-        ws.receive_text.side_effect = [
-            json.dumps({"type": "ping"}),
-            json.dumps({"type": "exit", "exit_code": 0}),
+        ws.receive.side_effect = [
+            _text({"type": "ping"}),
+            _text({"type": "exit", "exit_code": 0}),
         ]
         session = AsyncPtySession(ws, "cl-abc")
         events = [e async for e in session]
@@ -508,12 +512,11 @@ class TestAsyncPtySession:
     @pytest.mark.asyncio
     async def test_async_iteration(self):
         ws = AsyncMock()
-        messages = [
-            json.dumps({"type": "started", "tag": "pty-xyz", "pid": 5}),
-            json.dumps({"type": "output", "data": base64.b64encode(b"hi").decode()}),
-            json.dumps({"type": "exit", "exit_code": 0}),
+        ws.receive.side_effect = [
+            _text({"type": "started", "tag": "pty-xyz", "pid": 5}),
+            _bytes(b"hi"),
+            _text({"type": "exit", "exit_code": 0}),
         ]
-        ws.receive_text.side_effect = messages
         session = AsyncPtySession(ws, "cl-abc")
         events = []
         async for event in session:
@@ -522,6 +525,8 @@ class TestAsyncPtySession:
         assert events[0].type == PtyEventType.started
         assert session.tag == "pty-xyz"
         assert session.pid == 5
+        assert events[1].type == PtyEventType.output
+        assert events[1].data == b"hi"
         assert events[2].type == PtyEventType.exit
 
 

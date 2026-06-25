@@ -7,8 +7,18 @@ from pathlib import Path
 import pytest
 
 from wrenn import Capsule, CommandResult
+from wrenn.client import WrennClient
 from wrenn.commands import CommandHandle, ProcessInfo
-from wrenn.models import Capsule as CapsuleModel, FileEntry, Status
+from wrenn.exceptions import WrennNotFoundError
+from wrenn.models import (
+    Capsule as CapsuleModel,
+    CapsuleMetrics,
+    CapsuleStats,
+    FileEntry,
+    SSEEvent,
+    Status,
+    UsageResponse,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -406,3 +416,124 @@ class TestGit:
     def test_get_config_missing_returns_none(self):
         value = self.capsule.git.get_config("nonexistent.key")
         assert value is None
+
+
+class TestStatsUsageMetrics:
+    """Account-scoped + per-capsule observability endpoints."""
+
+    def setup_method(self):
+        _ensure_env()
+
+    def test_stats_default(self):
+        with WrennClient() as client:
+            stats = client.capsules.stats()
+            assert isinstance(stats, CapsuleStats)
+            # current.running_count is always present even when zero
+            assert stats.current is not None
+            assert stats.peaks is not None
+
+    def test_stats_range(self):
+        with WrennClient() as client:
+            stats = client.capsules.stats(range="24h")
+            assert isinstance(stats, CapsuleStats)
+            if stats.range is not None:
+                assert stats.range.value == "24h"
+
+    def test_usage_no_args(self):
+        with WrennClient() as client:
+            usage = client.capsules.usage()
+            assert isinstance(usage, UsageResponse)
+            assert usage.points is not None
+
+    def test_usage_date_range(self):
+        from datetime import date, timedelta
+
+        today = date.today()
+        with WrennClient() as client:
+            usage = client.capsules.usage(from_=today - timedelta(days=7), to=today)
+            assert isinstance(usage, UsageResponse)
+
+    def test_metrics_running_capsule(self):
+        capsule = Capsule(wait=True)
+        try:
+            with WrennClient() as client:
+                m = client.capsules.metrics(capsule.capsule_id)
+                assert isinstance(m, CapsuleMetrics)
+                assert m.sandbox_id == capsule.capsule_id
+                assert m.points is not None
+        finally:
+            capsule.destroy()
+
+    def test_metrics_range_2h(self):
+        capsule = Capsule(wait=True)
+        try:
+            with WrennClient() as client:
+                m = client.capsules.metrics(capsule.capsule_id, range="2h")
+                assert isinstance(m, CapsuleMetrics)
+        finally:
+            capsule.destroy()
+
+    def test_metrics_destroyed_capsule_raises(self):
+        # Create, destroy, then ask for metrics — guaranteed valid-shape ID
+        # that no longer exists. Server returns 404 for the missing capsule
+        # (avoids the 400 validation path for malformed IDs).
+        capsule = Capsule(wait=True)
+        capsule_id = capsule.capsule_id
+        capsule.destroy(wait=True)
+
+        with WrennClient() as client:
+            with pytest.raises(WrennNotFoundError):
+                client.capsules.metrics(capsule_id)
+
+
+class TestEventsStream:
+    """SSE lifecycle stream — drives a capsule create and watches for it."""
+
+    def setup_method(self):
+        _ensure_env()
+
+    def test_stream_receives_capsule_create_event(self):
+        import threading
+
+        seen: list[SSEEvent] = []
+        ready = threading.Event()
+        stop = threading.Event()
+
+        def _reader() -> None:
+            with WrennClient() as client:
+                stream = client.events.stream()
+                ready.set()
+                for ev in stream:
+                    seen.append(ev)
+                    if stop.is_set() or len(seen) > 20:
+                        return
+
+        t = threading.Thread(target=_reader, daemon=True)
+        t.start()
+        assert ready.wait(timeout=5)
+
+        # Give the server a beat to fully open the SSE stream before
+        # the action that should appear on it.
+        time.sleep(0.5)
+
+        capsule = Capsule()
+        capsule_id = capsule.capsule_id
+        try:
+            capsule.wait_ready(timeout=60)
+        finally:
+            capsule.destroy()
+
+        # Wait for either our capsule's event or a timeout.
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if any(
+                ev.resource is not None and ev.resource.id == capsule_id for ev in seen
+            ):
+                break
+            time.sleep(0.5)
+
+        stop.set()
+        assert any(isinstance(ev, SSEEvent) for ev in seen)
+        # Best-effort: assert we saw a capsule.* event for our capsule.
+        matching = [ev for ev in seen if ev.resource and ev.resource.id == capsule_id]
+        assert matching, f"no events for {capsule_id} in {len(seen)} received"

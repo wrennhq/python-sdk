@@ -1,6 +1,6 @@
 [project]
 name = "wrenn"
-version = "0.2.0"
+version = "0.3.0"
 description = "Python SDK for Wrenn"
 readme = "README.md"
 license = "MIT"
@@ -23,7 +23,6 @@ classifiers = [
 ]
 dependencies = [
     "certifi>=2026.2.25",
-    "email-validator>=2.3.0",
     "httpx>=0.28.1",
     "httpx-ws>=0.9.0",
     "pydantic>=2.12.5",
@@ -41,6 +40,7 @@ dev = [
     "pydoc-markdown>=4.8.2",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
+    "pyyaml>=6.0.3",
     "respx>=0.23.1",
     "ruff>=0.15.10",
 ]
