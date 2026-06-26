@@ -145,8 +145,8 @@ class TestRunPayload:
         route = respx.post(EXEC_URL).respond(200, json={"stdout": "hi", "exit_code": 0})
         result = _make_commands().run("echo hi")
         body = json.loads(route.calls[0].request.content)
-        assert body["cmd"] == "/bin/sh"
-        assert body["args"] == ["-c", "echo hi"]
+        assert body["cmd"] == "echo hi"
+        assert "args" not in body
         assert body["background"] is False
         assert body["timeout_sec"] == 30
         assert result.stdout == "hi"
@@ -361,12 +361,12 @@ def _patch_async_ws(monkeypatch, ws: _AsyncFakeWS) -> None:
 
 
 class TestStream:
-    def test_stream_sends_shell_wrapped_start(self, monkeypatch):
+    def test_stream_sends_cmd_verbatim(self, monkeypatch):
         ws = _FakeWS([{"type": "exit", "exit_code": 0}])
         _patch_sync_ws(monkeypatch, ws)
         list(_make_commands().stream("echo hi"))
         start = json.loads(ws.sent[0])
-        assert start == {"type": "start", "cmd": "/bin/sh", "args": ["-c", "echo hi"]}
+        assert start == {"type": "start", "cmd": "echo hi"}
 
     def test_stream_with_explicit_args(self, monkeypatch):
         ws = _FakeWS([{"type": "exit", "exit_code": 0}])
@@ -480,7 +480,8 @@ class TestAsyncCommands:
         events = [e async for e in _make_async_commands().stream("echo out")]
         assert [e.type for e in events] == ["start", "stdout", "exit"]
         start = json.loads(ws.sent[0])
-        assert start["cmd"] == "/bin/sh"
+        assert start["cmd"] == "echo out"
+        assert "args" not in start
 
     @pytest.mark.asyncio
     async def test_async_connect(self, monkeypatch):

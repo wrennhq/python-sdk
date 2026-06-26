@@ -120,8 +120,7 @@ def _build_exec_payload(
     tag: str | None,
 ) -> dict:
     payload: dict = {
-        "cmd": "/bin/sh",
-        "args": ["-c", cmd],
+        "cmd": cmd,
         "background": background,
     }
     if timeout is not None and not background:
@@ -156,7 +155,7 @@ def _decode_exec_run(
 def _build_stream_start(cmd: str, args: builtins.list[str] | None) -> dict:
     if args:
         return {"type": "start", "cmd": cmd, "args": args}
-    return {"type": "start", "cmd": "/bin/sh", "args": ["-c", cmd]}
+    return {"type": "start", "cmd": cmd}
 
 
 def _decode_exec_response(data: dict) -> CommandResult:
@@ -218,7 +217,9 @@ class Commands:
         """Execute a shell command inside the capsule.
 
         Args:
-            cmd (str): Shell command string to execute.
+            cmd (str): Command string to execute. Sent verbatim to the
+                server — no shell wrapping is applied. Provide a full
+                shell-quoted command if you need shell features.
             background (bool): If ``True``, launch the process in the
                 background and return a :class:`CommandHandle` immediately.
                 Defaults to ``False``.
@@ -308,10 +309,11 @@ class Commands:
         """Execute a command via WebSocket, streaming output as events.
 
         Args:
-            cmd (str): Command to execute.
-            args (list[str] | None): Additional arguments for the command.
-                When omitted, *cmd* is interpreted as a shell command
-                string and executed via ``/bin/sh -c``.
+            cmd (str): Command to execute. Sent verbatim to the server as
+                the full command string.
+            args (list[str] | None): Optional explicit argument vector. When
+                provided, *cmd* is treated as the program and *args* as its
+                argv tail. When omitted, *cmd* is forwarded as-is.
 
         Yields:
             StreamEvent: Successive events including :class:`StreamStartEvent`,
@@ -378,7 +380,9 @@ class AsyncCommands:
         """Execute a shell command inside the capsule.
 
         Args:
-            cmd (str): Shell command string to execute.
+            cmd (str): Command string to execute. Sent verbatim to the
+                server — no shell wrapping is applied. Provide a full
+                shell-quoted command if you need shell features.
             background (bool): If ``True``, launch the process in the
                 background and return a :class:`CommandHandle` immediately.
                 Defaults to ``False``.
@@ -470,10 +474,11 @@ class AsyncCommands:
         """Execute a command via WebSocket, streaming output as events.
 
         Args:
-            cmd (str): Command to execute.
-            args (list[str] | None): Additional arguments for the command.
-                When omitted, *cmd* is interpreted as a shell command
-                string and executed via ``/bin/sh -c``.
+            cmd (str): Command to execute. Sent verbatim to the server as
+                the full command string.
+            args (list[str] | None): Optional explicit argument vector. When
+                provided, *cmd* is treated as the program and *args* as its
+                argv tail. When omitted, *cmd* is forwarded as-is.
 
         Yields:
             StreamEvent: Successive events including :class:`StreamStartEvent`,
