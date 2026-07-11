@@ -240,6 +240,20 @@ class TestEvents:
         ]
         assert events[0].resource and events[0].resource.id == "sb-1"
 
+    def test_sse_event_size_is_capped(self, monkeypatch):
+        # A hostile server that streams data: lines without ever emitting a
+        # frame boundary must not grow client memory without bound.
+        from wrenn.client import _iter_sse_events
+
+        monkeypatch.setattr("wrenn.client._MAX_SSE_EVENT_BYTES", 4096)
+
+        def hostile_lines():
+            while True:
+                yield "data: " + "A" * 512
+
+        with pytest.raises(ValueError, match="maximum buffered size"):
+            list(_iter_sse_events(hostile_lines()))
+
     @respx.mock
     def test_stream_multiline_data(self, client):
         body = (
