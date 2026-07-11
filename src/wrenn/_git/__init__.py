@@ -908,12 +908,13 @@ class Git:
 
         restore_error: Exception | None = None
         try:
-            self._run(
+            restore = self._run(
                 build_remote_set_url(remote, original_url),
                 cwd=cwd,
                 envs=envs,
                 timeout=timeout,
             )
+            _check_result(restore, op=f"{op} (restore remote url)")
         except Exception as err:
             restore_error = err
 
@@ -1457,12 +1458,13 @@ class AsyncGit:
 
         restore_error: Exception | None = None
         try:
-            await self._run(
+            restore = await self._run(
                 build_remote_set_url(remote, original_url),
                 cwd=cwd,
                 envs=envs,
                 timeout=timeout,
             )
+            _check_result(restore, op=f"{op} (restore remote url)")
         except Exception as err:
             restore_error = err
 

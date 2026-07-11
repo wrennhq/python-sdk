@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import urlparse
 
+import httpx
 import pytest
 import respx
 
@@ -93,7 +95,12 @@ def _make_async_git() -> AsyncGit:
 class TestBuildClone:
     def test_basic(self):
         args = build_clone("https://github.com/user/repo.git")
-        assert args == ["git", "clone", "https://github.com/user/repo.git"]
+        assert args == [
+            "git",
+            "clone",
+            "--end-of-options",
+            "https://github.com/user/repo.git",
+        ]
 
     def test_with_dest(self):
         args = build_clone("https://github.com/user/repo.git", "/tmp/repo")
@@ -125,6 +132,7 @@ class TestBuildClone:
             "--single-branch",
             "--depth",
             "5",
+            "--end-of-options",
             "https://github.com/user/repo.git",
             "/tmp/repo",
         ]
@@ -174,11 +182,11 @@ class TestBuildCommit:
 
 class TestBuildPush:
     def test_basic(self):
-        assert build_push() == ["git", "push", "origin"]
+        assert build_push() == ["git", "push", "--end-of-options", "origin"]
 
     def test_with_branch(self):
         args = build_push("origin", "main")
-        assert args == ["git", "push", "origin", "main"]
+        assert args == ["git", "push", "--end-of-options", "origin", "main"]
 
     def test_force(self):
         args = build_push(force=True)
@@ -191,7 +199,7 @@ class TestBuildPush:
 
 class TestBuildPull:
     def test_basic(self):
-        assert build_pull() == ["git", "pull", "origin"]
+        assert build_pull() == ["git", "pull", "--end-of-options", "origin"]
 
     def test_rebase(self):
         args = build_pull(rebase=True)
@@ -203,7 +211,7 @@ class TestBuildPull:
 
     def test_with_branch(self):
         args = build_pull("upstream", "feature")
-        assert args == ["git", "pull", "upstream", "feature"]
+        assert args == ["git", "pull", "--end-of-options", "upstream", "feature"]
 
 
 class TestBuildStatus:
@@ -226,10 +234,22 @@ class TestBuildBranchOps:
 
     def test_create_with_start_point(self):
         args = build_create_branch("feat", start_point="abc123")
-        assert args == ["git", "checkout", "-b", "feat", "abc123"]
+        assert args == [
+            "git",
+            "checkout",
+            "-b",
+            "feat",
+            "--end-of-options",
+            "abc123",
+        ]
 
     def test_checkout(self):
-        assert build_checkout("main") == ["git", "checkout", "main"]
+        assert build_checkout("main") == [
+            "git",
+            "checkout",
+            "--end-of-options",
+            "main",
+        ]
 
     def test_delete(self):
         assert build_delete_branch("old") == ["git", "branch", "-d", "old"]
@@ -1128,3 +1148,101 @@ def git_cmd_from_body(body: dict) -> str:
     """Extract the command string from the payload."""
     assert "args" not in body
     return body["cmd"]
+
+
+# ══════════════════════════════════════════════════════════════════
+# Security regression tests
+# ══════════════════════════════════════════════════════════════════
+
+
+class TestFlagInjectionGuards:
+    """A caller-supplied ref/URL/path that begins with ``-`` must land after
+    ``--end-of-options`` so git parses it as a positional, not a flag."""
+
+    def test_push_branch_flag_is_neutralized(self):
+        args = build_push("origin", "--mirror")
+        assert args.index("--end-of-options") < args.index("--mirror")
+
+    def test_pull_branch_flag_is_neutralized(self):
+        args = build_pull("origin", "--upload-pack=x")
+        assert args.index("--end-of-options") < args.index("--upload-pack=x")
+
+    def test_clone_url_flag_is_neutralized(self):
+        args = build_clone("--upload-pack=/bin/sh")
+        assert args.index("--end-of-options") < args.index("--upload-pack=/bin/sh")
+
+    def test_checkout_flag_is_neutralized(self):
+        args = build_checkout("-f")
+        assert args.index("--end-of-options") < args.index("-f")
+
+    def test_create_branch_start_point_flag_is_neutralized(self):
+        args = build_create_branch("nb", start_point="-f")
+        assert args.index("--end-of-options") < args.index("-f")
+
+    def test_intended_flags_stay_before_separator(self):
+        # Real flags must precede the separator so they still take effect;
+        # positionals must follow it.
+        args = build_push("origin", "main", force=True, set_upstream=True)
+        sep = args.index("--end-of-options")
+        assert args.index("--force") < sep
+        assert args.index("--set-upstream") < sep
+        assert args.index("origin") > sep
+
+
+class TestEmbedCredentialsEncoding:
+    def test_special_chars_are_percent_encoded(self):
+        # A password with URL-structural chars must not corrupt the netloc:
+        # the host and path stay intact and the value is recoverable.
+        url = embed_credentials("https://github.com/o/r.git", "user", "p/a#s?s")
+        parsed = urlparse(url)
+        assert parsed.hostname == "github.com"
+        assert parsed.path == "/o/r.git"
+        assert strip_credentials(url) == "https://github.com/o/r.git"
+
+    def test_plain_credentials_unchanged(self):
+        # No special chars -> byte-identical to the pre-fix output.
+        url = embed_credentials("https://github.com/o/r.git", "user", "token")
+        assert url == "https://user:token@github.com/o/r.git"
+
+
+class TestCredentialApproveInjection:
+    @pytest.mark.parametrize(
+        "host,protocol",
+        [
+            ("github.com\nhost=evil.com", "https"),
+            ("github.com", "https\nusername=attacker"),
+        ],
+    )
+    def test_newline_in_host_or_protocol_rejected(self, host, protocol):
+        with pytest.raises(ValueError, match="newline"):
+            build_credential_approve_cmd("user", "token", host, protocol)
+
+
+class TestWithRemoteCredentialsRestore:
+    @respx.mock
+    def test_failed_restore_raises_instead_of_silently_persisting(self):
+        # get-url, embed set-url, push, restore set-url(FAILS)
+        respx.post(EXEC_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200, json=_exec_response(stdout="https://github.com/o/r.git\n")
+                ),
+                httpx.Response(200, json=_exec_response()),
+                httpx.Response(200, json=_exec_response()),
+                httpx.Response(
+                    200,
+                    json=_exec_response(
+                        stderr="error: could not lock config file", exit_code=1
+                    ),
+                ),
+            ]
+        )
+        git = _make_git()
+        with pytest.raises(GitCommandError):
+            git.push("origin", "main", username="u", password="ghp_SECRET")
+
+        # The credential URL was embedded (call #2); the failing call is the
+        # restore of the clean URL (call #4). Pre-fix this returned success.
+        embed_cmd = json.loads(respx.calls[1].request.content)["cmd"]
+        assert "ghp_SECRET" in embed_cmd
+        assert len(respx.calls) == 4

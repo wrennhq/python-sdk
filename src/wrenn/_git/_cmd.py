@@ -97,6 +97,10 @@ class GitBranch:
 
 # ── Argument builders ──────────────────────────────────────────────
 
+# Stops git parsing later positionals as options, so a ref/URL/path beginning
+# with `-` cannot be smuggled in as a flag (git >= 2.24).
+_END_OF_OPTIONS = "--end-of-options"
+
 
 def build_clone(
     url: str,
@@ -111,6 +115,7 @@ def build_clone(
         args.extend(["--branch", branch, "--single-branch"])
     if depth is not None:
         args.extend(["--depth", str(depth)])
+    args.append(_END_OF_OPTIONS)
     args.append(url)
     if dest:
         args.append(dest)
@@ -180,6 +185,7 @@ def build_push(
         args.append("--force")
     if set_upstream:
         args.append("--set-upstream")
+    args.append(_END_OF_OPTIONS)
     args.append(remote)
     if branch:
         args.append(branch)
@@ -199,6 +205,7 @@ def build_pull(
         args.append("--rebase")
     if ff_only:
         args.append("--ff-only")
+    args.append(_END_OF_OPTIONS)
     args.append(remote)
     if branch:
         args.append(branch)
@@ -223,13 +230,14 @@ def build_create_branch(
     """Build ``git checkout -b`` arguments."""
     args = ["git", "checkout", "-b", name]
     if start_point:
+        args.append(_END_OF_OPTIONS)
         args.append(start_point)
     return args
 
 
 def build_checkout(name: str) -> list[str]:
     """Build ``git checkout`` arguments."""
-    return ["git", "checkout", name]
+    return ["git", "checkout", _END_OF_OPTIONS, name]
 
 
 def build_delete_branch(

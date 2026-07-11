@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import shlex
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import quote, urlparse, urlunparse
 
 
 def embed_credentials(url: str, username: str, password: str) -> str:
@@ -21,7 +21,9 @@ def embed_credentials(url: str, username: str, password: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError("Only http(s) URLs support embedded credentials.")
-    netloc = f"{username}:{password}@{parsed.hostname}"
+    user = quote(username, safe="")
+    secret = quote(password, safe="")
+    netloc = f"{user}:{secret}@{parsed.hostname}"
     if parsed.port:
         netloc = f"{netloc}:{parsed.port}"
     return urlunparse(parsed._replace(netloc=netloc))
@@ -87,8 +89,11 @@ def build_credential_approve_cmd(
     Returns:
         A shell command string safe to pass to ``commands.run()``.
     """
-    if "\n" in username or "\n" in password:
-        raise ValueError("Credentials must not contain newline characters.")
+    for value in (username, password, host, protocol):
+        if any(c in value for c in "\n\r\x00"):
+            raise ValueError(
+                "Credential fields must not contain newline or NUL characters."
+            )
     target_host = host.strip() or "github.com"
     target_protocol = protocol.strip() or "https"
     credential_input = "\n".join(

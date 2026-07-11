@@ -178,23 +178,33 @@ def _range_params(range: str | None) -> dict:
     return {"range": range} if range is not None else {}
 
 
+_MAX_SSE_EVENT_BYTES = 16 * 1024 * 1024
+
+
 def _iter_sse_events(lines: Iterator[str]) -> Iterator[SSEEvent]:
     """Parse SSE ``data:`` frames into :class:`SSEEvent` objects.
 
     Ignores ``event:`` names and ``:keepalive`` comments — the payload's
-    own ``event`` field carries the kind.
+    own ``event`` field carries the kind. A single event's buffered data is
+    capped at :data:`_MAX_SSE_EVENT_BYTES` so a server that never emits a
+    frame boundary cannot grow client memory without bound.
     """
     data_lines: list[str] = []
+    buffered = 0
     for raw in lines:
         if raw == "":
             if data_lines:
                 yield SSEEvent.model_validate_json("\n".join(data_lines))
                 data_lines = []
+                buffered = 0
             continue
         if raw.startswith(":"):
             continue
         if raw.startswith("data:"):
             data_lines.append(raw[5:].lstrip())
+            buffered += len(raw)
+            if buffered > _MAX_SSE_EVENT_BYTES:
+                raise ValueError("SSE event exceeded maximum buffered size")
 
 
 class CapsulesResource:
@@ -617,16 +627,21 @@ class AsyncEventsResource:
                 await resp.aread()
                 _raise_for_status(resp)
             data_lines: list[str] = []
+            buffered = 0
             async for raw in resp.aiter_lines():
                 if raw == "":
                     if data_lines:
                         yield SSEEvent.model_validate_json("\n".join(data_lines))
                         data_lines = []
+                        buffered = 0
                     continue
                 if raw.startswith(":"):
                     continue
                 if raw.startswith("data:"):
                     data_lines.append(raw[5:].lstrip())
+                    buffered += len(raw)
+                    if buffered > _MAX_SSE_EVENT_BYTES:
+                        raise ValueError("SSE event exceeded maximum buffered size")
 
 
 class SnapshotsResource:
